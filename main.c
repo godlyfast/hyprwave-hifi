@@ -3,6 +3,7 @@
 #include <gio/gio.h>
 #include <stdio.h>
 #include <string.h>
+#include "layout.h"
 
 typedef struct {
     GtkWidget *window;
@@ -20,16 +21,18 @@ typedef struct {
     GDBusProxy *mpris_proxy;
     gchar *current_player;
     guint update_timer;
+    LayoutConfig *layout;
 } AppState;
 
 static void update_position(AppState *state);
 static void update_metadata(AppState *state);
 
-// --- HELPER FUNCTION FOR TYPE SAFETY ---
-// This prevents the GLib-CRITICAL error by handling different number types
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
 static gint64 get_variant_as_int64(GVariant *value) {
     if (value == NULL) return 0;
-
     if (g_variant_is_of_type(value, G_VARIANT_TYPE_INT64)) {
         return g_variant_get_int64(value);
     } 
@@ -45,10 +48,8 @@ static gint64 get_variant_as_int64(GVariant *value) {
     else if (g_variant_is_of_type(value, G_VARIANT_TYPE_DOUBLE)) {
         return (gint64)g_variant_get_double(value);
     }
-    
     return 0;
 }
-// ---------------------------------------
 
 static gboolean update_position_tick(gpointer user_data) {
     AppState *state = (AppState *)user_data;
@@ -59,7 +60,6 @@ static gboolean update_position_tick(gpointer user_data) {
 static void update_position(AppState *state) {
     if (!state->mpris_proxy) return;
     
-    // 1. Get Position (Current playback time in microseconds)
     GError *error = NULL;
     GVariant *position_container = g_dbus_proxy_call_sync(
         state->mpris_proxy,
@@ -76,14 +76,10 @@ static void update_position(AppState *state) {
     
     GVariant *position_val_wrapped;
     g_variant_get(position_container, "(v)", &position_val_wrapped);
-    
-    // Use helper to safely get position
     gint64 position = get_variant_as_int64(position_val_wrapped);
-    
     g_variant_unref(position_val_wrapped);
     g_variant_unref(position_container);
     
-    // 2. Get Metadata for Track Length
     gint64 length = 0;
     GVariant *metadata_var = g_dbus_proxy_get_cached_property(state->mpris_proxy, "Metadata");
     
@@ -95,7 +91,6 @@ static void update_position(AppState *state) {
         g_variant_iter_init(&iter, metadata_var);
         while (g_variant_iter_loop(&iter, "{sv}", &key, &val)) {
             if (g_strcmp0(key, "mpris:length") == 0) {
-                // Use helper to safely get length
                 length = get_variant_as_int64(val);
                 break;
             }
@@ -103,37 +98,25 @@ static void update_position(AppState *state) {
         g_variant_unref(metadata_var);
     }
 
-    // 3. Update UI
     char time_str[32];
     double fraction = 0.0;
-
-    // Convert microseconds to seconds
     gint64 pos_seconds = position / 1000000;
 
     if (length > 0) {
-        // CASE A: We know the song length. Show Remaining Time.
         gint64 len_seconds = length / 1000000;
         gint64 rem_seconds = len_seconds - pos_seconds;
-        
         if (rem_seconds < 0) rem_seconds = 0;
-
         int mins = rem_seconds / 60;
         int secs = rem_seconds % 60;
-        
         snprintf(time_str, sizeof(time_str), "-%d:%02d", mins, secs);
-        
-        // Calculate progress bar fraction
         fraction = (double)position / (double)length;
     } else {
-        // CASE B: Length unknown (or 0). Show Elapsed Time.
         int mins = pos_seconds / 60;
         int secs = pos_seconds % 60;
-        
         snprintf(time_str, sizeof(time_str), "%d:%02d", mins, secs);
-        fraction = 0.0; // Cannot show progress if we don't know total length
+        fraction = 0.0;
     }
 
-    // Clamp fraction to 0.0 - 1.0 range
     if (fraction > 1.0) fraction = 1.0;
     if (fraction < 0.0) fraction = 0.0;
 
@@ -145,40 +128,26 @@ static void update_metadata(AppState *state) {
     if (!state->mpris_proxy) return;
     
     GVariant *metadata = g_dbus_proxy_get_cached_property(state->mpris_proxy, "Metadata");
-    if (!metadata) {
-        g_print("No metadata available\n");
-        return;
-    }
+    if (!metadata) return;
     
-    // Iterate through the metadata dictionary
     GVariantIter iter;
     GVariant *value;
     gchar *key;
     
     const gchar *title = NULL;
     const gchar *artist = NULL;
-    const gchar *album = NULL;
     const gchar *art_url = NULL;
     
     g_variant_iter_init(&iter, metadata);
     while (g_variant_iter_loop(&iter, "{sv}", &key, &value)) {
-        // Debug print to see types if needed
-        // g_print("Metadata key: %s, type: %s\n", key, g_variant_get_type_string(value));
-        
         if (g_strcmp0(key, "xesam:title") == 0) {
             title = g_variant_get_string(value, NULL);
         }
-        else if (g_strcmp0(key, "xesam:album") == 0) {
-            album = g_variant_get_string(value, NULL);
-        }
         else if (g_strcmp0(key, "xesam:artist") == 0) {
-            // Artist is usually an array of strings
             if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING_ARRAY)) {
                 gsize length;
                 const gchar **artists = g_variant_get_strv(value, &length);
-                if (length > 0) {
-                    artist = artists[0];
-                }
+                if (length > 0) artist = artists[0];
             }
         }
         else if (g_strcmp0(key, "mpris:artUrl") == 0) {
@@ -186,7 +155,6 @@ static void update_metadata(AppState *state) {
         }
     }
     
-    // Apply the values
     if (title && strlen(title) > 0) {
         gtk_label_set_text(GTK_LABEL(state->track_title), title);
     } else {
@@ -196,7 +164,6 @@ static void update_metadata(AppState *state) {
     if (artist && strlen(artist) > 0) {
         gtk_label_set_text(GTK_LABEL(state->artist_label), artist);
     } else {
-        // Only set "Unknown Artist" if we really don't have one
         const gchar *current = gtk_label_get_text(GTK_LABEL(state->artist_label));
         if (g_strcmp0(current, "Unknown Artist") == 0 || strlen(current) == 0) {
             gtk_label_set_text(GTK_LABEL(state->artist_label), "Unknown Artist");
@@ -205,70 +172,45 @@ static void update_metadata(AppState *state) {
     
     // Handle album art
     if (art_url && strlen(art_url) > 0) {
-        // g_print("Art URL: %s\n", art_url);
+        GdkPixbuf *pixbuf = NULL;
         
         if (g_str_has_prefix(art_url, "file://")) {
             gchar *file_path = g_filename_from_uri(art_url, NULL, NULL);
-            
             if (file_path && g_file_test(file_path, G_FILE_TEST_EXISTS)) {
                 GError *error = NULL;
-                GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file_at_scale(file_path, 120, 120, FALSE, &error);
-                
-                if (pixbuf) {
-                    GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
-                    GtkWidget *image = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
-                    gtk_widget_set_size_request(image, 120, 120);
-                    
-                    // Clear old content
-                    GtkWidget *child = gtk_widget_get_first_child(state->album_cover);
-                    while (child) {
-                        GtkWidget *next = gtk_widget_get_next_sibling(child);
-                        gtk_widget_unparent(child);
-                        child = next;
-                    }
-                    
-                    gtk_box_append(GTK_BOX(state->album_cover), image);
-                    g_object_unref(texture);
-                    g_object_unref(pixbuf);
-                } else if (error) {
-                    g_error_free(error);
-                }
+                pixbuf = gdk_pixbuf_new_from_file_at_scale(file_path, 120, 120, FALSE, &error);
+                if (error) g_error_free(error);
             }
             g_free(file_path);
         } else if (g_str_has_prefix(art_url, "http://") || g_str_has_prefix(art_url, "https://")) {
-            // Download album art from HTTP URL
             GFile *file = g_file_new_for_uri(art_url);
             GError *error = NULL;
             GInputStream *stream = G_INPUT_STREAM(g_file_read(file, NULL, &error));
-            
             if (stream && !error) {
-                GdkPixbuf *pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, 120, 120, FALSE, NULL, &error);
-                
-                if (pixbuf && !error) {
-                    GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
-                    GtkWidget *image = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
-                    gtk_widget_set_size_request(image, 120, 120);
-                    
-                    // Clear old content
-                    GtkWidget *child = gtk_widget_get_first_child(state->album_cover);
-                    while (child) {
-                        GtkWidget *next = gtk_widget_get_next_sibling(child);
-                        gtk_widget_unparent(child);
-                        child = next;
-                    }
-                    
-                    gtk_box_append(GTK_BOX(state->album_cover), image);
-                    g_object_unref(texture);
-                    g_object_unref(pixbuf);
-                } else if (error) {
-                    g_error_free(error);
-                }
-                
+                pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, 120, 120, FALSE, NULL, &error);
+                if (error) g_error_free(error);
                 g_object_unref(stream);
             } else if (error) {
                 g_error_free(error);
             }
             g_object_unref(file);
+        }
+        
+        if (pixbuf) {
+            GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
+            GtkWidget *image = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
+            gtk_widget_set_size_request(image, 120, 120);
+            
+            GtkWidget *child = gtk_widget_get_first_child(state->album_cover);
+            while (child) {
+                GtkWidget *next = gtk_widget_get_next_sibling(child);
+                gtk_widget_unparent(child);
+                child = next;
+            }
+            
+            gtk_box_append(GTK_BOX(state->album_cover), image);
+            g_object_unref(texture);
+            g_object_unref(pixbuf);
         }
     }
     
@@ -308,7 +250,6 @@ static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_propertie
     AppState *state = (AppState *)user_data;
     update_metadata(state);
     
-    // Check playback status
     GVariant *status_var = g_dbus_proxy_get_cached_property(proxy, "PlaybackStatus");
     if (status_var) {
         const gchar *status = g_variant_get_string(status_var, NULL);
@@ -408,45 +349,28 @@ static void on_play_clicked(GtkButton *button, gpointer user_data) {
     AppState *state = (AppState *)user_data;
     
     if (!state->mpris_proxy) {
-        g_print("No media player connected\n");
-        // Try to find a player again if clicked and none connected
         find_active_player(state);
         return;
     }
     
-    g_dbus_proxy_call(
-        state->mpris_proxy,
-        "PlayPause",
-        NULL,
-        G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL, NULL, NULL
-    );
+    g_dbus_proxy_call(state->mpris_proxy, "PlayPause", NULL,
+                      G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
 }
 
 static void on_prev_clicked(GtkButton *button, gpointer user_data) {
     AppState *state = (AppState *)user_data;
     if (!state->mpris_proxy) return;
     
-    g_dbus_proxy_call(
-        state->mpris_proxy,
-        "Previous",
-        NULL,
-        G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL, NULL, NULL
-    );
+    g_dbus_proxy_call(state->mpris_proxy, "Previous", NULL,
+                      G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
 }
 
 static void on_next_clicked(GtkButton *button, gpointer user_data) {
     AppState *state = (AppState *)user_data;
     if (!state->mpris_proxy) return;
     
-    g_dbus_proxy_call(
-        state->mpris_proxy,
-        "Next",
-        NULL,
-        G_DBUS_CALL_FLAGS_NONE,
-        -1, NULL, NULL, NULL
-    );
+    g_dbus_proxy_call(state->mpris_proxy, "Next", NULL,
+                      G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
 }
 
 static void on_revealer_transition_done(GObject *revealer, GParamSpec *pspec, gpointer user_data) {
@@ -462,11 +386,9 @@ static void on_expand_clicked(GtkButton *button, gpointer user_data) {
     AppState *state = (AppState *)user_data;
     state->is_expanded = !state->is_expanded;
     
-    if (state->is_expanded) {
-        gtk_image_set_from_file(GTK_IMAGE(state->expand_icon), "icons/arrow-right.svg");
-    } else {
-        gtk_image_set_from_file(GTK_IMAGE(state->expand_icon), "icons/arrow-left.svg");
-    }
+    // Update icon using layout helper
+    const gchar *icon_path = layout_get_expand_icon(state->layout, state->is_expanded);
+    gtk_image_set_from_file(GTK_IMAGE(state->expand_icon), icon_path);
     
     gtk_revealer_set_reveal_child(GTK_REVEALER(state->revealer), state->is_expanded);
 }
@@ -488,6 +410,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->is_expanded = FALSE;
     state->mpris_proxy = NULL;
     state->current_player = NULL;
+    state->layout = layout_load_config();
     
     GtkWidget *window = gtk_application_window_new(app);
     state->window = window;
@@ -499,36 +422,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_layer_set_layer(GTK_WINDOW(window), GTK_LAYER_SHELL_LAYER_OVERLAY);
     gtk_layer_set_namespace(GTK_WINDOW(window), "hyprwave");
     
-    gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_RIGHT, TRUE);
-    gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_TOP, FALSE);
-    gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_BOTTOM, FALSE);
-    gtk_layer_set_anchor(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_LEFT, FALSE);
+    // Setup anchors using layout module
+    layout_setup_window_anchors(GTK_WINDOW(window), state->layout);
     
-    gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_RIGHT, 10);
     gtk_layer_set_keyboard_mode(GTK_WINDOW(window), GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
-    
     gtk_widget_add_css_class(window, "hyprwave-window");
     
-    GtkWidget *main_container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(main_container, "main-container");
-    gtk_widget_set_hexpand(main_container, FALSE);
-    gtk_widget_set_vexpand(main_container, FALSE);
-    
-    // Control Bar
-    GtkWidget *control_bar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_add_css_class(control_bar, "control-container");
-    gtk_widget_set_halign(control_bar, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(control_bar, GTK_ALIGN_CENTER);
-    gtk_widget_set_hexpand(control_bar, FALSE);
-    gtk_widget_set_vexpand(control_bar, FALSE);
-    gtk_widget_set_size_request(control_bar, 70, 240);
-    
-    // Expanded Section
-    GtkWidget *expanded_section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_add_css_class(expanded_section, "expanded-section");
-    gtk_widget_set_halign(expanded_section, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(expanded_section, GTK_ALIGN_CENTER);
-    
+    // Create widget elements
     GtkWidget *album_cover = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     state->album_cover = album_cover;
     gtk_widget_add_css_class(album_cover, "album-cover");
@@ -560,22 +460,28 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->time_remaining = time_remaining;
     gtk_widget_add_css_class(time_remaining, "time-remaining");
     
-    gtk_box_append(GTK_BOX(expanded_section), album_cover);
-    gtk_box_append(GTK_BOX(expanded_section), source_label);
-    gtk_box_append(GTK_BOX(expanded_section), track_title);
-    gtk_box_append(GTK_BOX(expanded_section), artist_label);
-    gtk_box_append(GTK_BOX(expanded_section), progress_bar);
-    gtk_box_append(GTK_BOX(expanded_section), time_remaining);
+    // Create expanded section using layout module
+    ExpandedWidgets expanded_widgets = {
+        .album_cover = album_cover,
+        .source_label = source_label,
+        .track_title = track_title,
+        .artist_label = artist_label,
+        .progress_bar = progress_bar,
+        .time_remaining = time_remaining
+    };
     
+    GtkWidget *expanded_section = layout_create_expanded_section(state->layout, &expanded_widgets);
+    
+    // Create revealer
     GtkWidget *revealer = gtk_revealer_new();
     state->revealer = revealer;
-    gtk_revealer_set_transition_type(GTK_REVEALER(revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_RIGHT);
+    gtk_revealer_set_transition_type(GTK_REVEALER(revealer), layout_get_transition_type(state->layout));
     gtk_revealer_set_transition_duration(GTK_REVEALER(revealer), 300);
     gtk_revealer_set_child(GTK_REVEALER(revealer), expanded_section);
     gtk_revealer_set_reveal_child(GTK_REVEALER(revealer), FALSE);
     g_signal_connect(revealer, "notify::child-revealed", G_CALLBACK(on_revealer_transition_done), state);
     
-    // Control Buttons
+    // Create buttons
     GtkWidget *prev_btn = gtk_button_new();
     gtk_widget_set_size_request(prev_btn, 44, 44);
     GtkWidget *prev_icon = gtk_image_new_from_file("icons/previous.svg");
@@ -606,7 +512,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
     
     GtkWidget *expand_btn = gtk_button_new();
     gtk_widget_set_size_request(expand_btn, 44, 44);
-    GtkWidget *expand_icon = gtk_image_new_from_file("icons/arrow-left.svg");
+    const gchar *initial_icon = layout_get_expand_icon(state->layout, FALSE);
+    GtkWidget *expand_icon = gtk_image_new_from_file(initial_icon);
     state->expand_icon = expand_icon;
     gtk_image_set_pixel_size(GTK_IMAGE(expand_icon), 20);
     gtk_button_set_child(GTK_BUTTON(expand_btn), expand_icon);
@@ -614,13 +521,11 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_add_css_class(expand_btn, "expand-button");
     g_signal_connect(expand_btn, "clicked", G_CALLBACK(on_expand_clicked), state);
     
-    gtk_box_append(GTK_BOX(control_bar), prev_btn);
-    gtk_box_append(GTK_BOX(control_bar), play_btn);
-    gtk_box_append(GTK_BOX(control_bar), next_btn);
-    gtk_box_append(GTK_BOX(control_bar), expand_btn);
+    // Create control bar using layout module
+    GtkWidget *control_bar = layout_create_control_bar(state->layout, &prev_btn, &play_btn, &next_btn, &expand_btn);
     
-    gtk_box_append(GTK_BOX(main_container), control_bar);
-    gtk_box_append(GTK_BOX(main_container), revealer);
+    // Create main container using layout module
+    GtkWidget *main_container = layout_create_main_container(state->layout, control_bar, revealer);
     
     gtk_window_set_child(GTK_WINDOW(window), main_container);
     gtk_window_present(GTK_WINDOW(window));
@@ -631,7 +536,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // Update position every second
     state->update_timer = g_timeout_add_seconds(1, update_position_tick, state);
     
-    g_print("HyprWave window created\n");
+    g_print("HyprWave started!\n");
 }
 
 int main(int argc, char **argv) {
