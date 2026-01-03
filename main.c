@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "layout.h"
+#include "paths.h"
 
 typedef struct {
     GtkWidget *window;
@@ -256,9 +257,13 @@ static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_propertie
         state->is_playing = g_strcmp0(status, "Playing") == 0;
         
         if (state->is_playing) {
-            gtk_image_set_from_file(GTK_IMAGE(state->play_icon), "icons/pause.svg");
+            gchar *icon_path = get_icon_path("pause.svg");
+            gtk_image_set_from_file(GTK_IMAGE(state->play_icon), icon_path);
+            free_path(icon_path);
         } else {
-            gtk_image_set_from_file(GTK_IMAGE(state->play_icon), "icons/play.svg");
+            gchar *icon_path = get_icon_path("play.svg");
+            gtk_image_set_from_file(GTK_IMAGE(state->play_icon), icon_path);
+            free_path(icon_path);
         }
         g_variant_unref(status_var);
     }
@@ -387,15 +392,21 @@ static void on_expand_clicked(GtkButton *button, gpointer user_data) {
     state->is_expanded = !state->is_expanded;
     
     // Update icon using layout helper
-    const gchar *icon_path = layout_get_expand_icon(state->layout, state->is_expanded);
+    const gchar *icon_name = layout_get_expand_icon(state->layout, state->is_expanded);
+    gchar *icon_path = get_icon_path(icon_name);
     gtk_image_set_from_file(GTK_IMAGE(state->expand_icon), icon_path);
+    free_path(icon_path);
     
     gtk_revealer_set_reveal_child(GTK_REVEALER(state->revealer), state->is_expanded);
 }
 
 static void load_css() {
     GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_path(provider, "style.css");
+    
+    gchar *css_path = get_style_path();
+    gtk_css_provider_load_from_path(provider, css_path);
+    free_path(css_path);
+    
     gtk_style_context_add_provider_for_display(
         gdk_display_get_default(),
         GTK_STYLE_PROVIDER(provider),
@@ -482,18 +493,24 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_signal_connect(revealer, "notify::child-revealed", G_CALLBACK(on_revealer_transition_done), state);
     
     // Create buttons
+    // Previous button
     GtkWidget *prev_btn = gtk_button_new();
     gtk_widget_set_size_request(prev_btn, 44, 44);
-    GtkWidget *prev_icon = gtk_image_new_from_file("icons/previous.svg");
+    gchar *prev_icon_path = get_icon_path("previous.svg");
+    GtkWidget *prev_icon = gtk_image_new_from_file(prev_icon_path);
+    free_path(prev_icon_path);
     gtk_image_set_pixel_size(GTK_IMAGE(prev_icon), 20);
     gtk_button_set_child(GTK_BUTTON(prev_btn), prev_icon);
     gtk_widget_add_css_class(prev_btn, "control-button");
     gtk_widget_add_css_class(prev_btn, "prev-button");
     g_signal_connect(prev_btn, "clicked", G_CALLBACK(on_prev_clicked), state);
     
+    // Play button
     GtkWidget *play_btn = gtk_button_new();
     gtk_widget_set_size_request(play_btn, 44, 44);
-    GtkWidget *play_icon = gtk_image_new_from_file("icons/play.svg");
+    gchar *play_icon_path = get_icon_path("play.svg");
+    GtkWidget *play_icon = gtk_image_new_from_file(play_icon_path);
+    free_path(play_icon_path);
     state->play_icon = play_icon;
     gtk_image_set_pixel_size(GTK_IMAGE(play_icon), 20);
     gtk_button_set_child(GTK_BUTTON(play_btn), play_icon);
@@ -501,19 +518,25 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_add_css_class(play_btn, "play-button");
     g_signal_connect(play_btn, "clicked", G_CALLBACK(on_play_clicked), state);
     
+    // Next button
     GtkWidget *next_btn = gtk_button_new();
     gtk_widget_set_size_request(next_btn, 44, 44);
-    GtkWidget *next_icon = gtk_image_new_from_file("icons/next.svg");
+    gchar *next_icon_path = get_icon_path("next.svg");
+    GtkWidget *next_icon = gtk_image_new_from_file(next_icon_path);
+    free_path(next_icon_path);
     gtk_image_set_pixel_size(GTK_IMAGE(next_icon), 20);
     gtk_button_set_child(GTK_BUTTON(next_btn), next_icon);
     gtk_widget_add_css_class(next_btn, "control-button");
     gtk_widget_add_css_class(next_btn, "next-button");
     g_signal_connect(next_btn, "clicked", G_CALLBACK(on_next_clicked), state);
     
+    // Expand button
     GtkWidget *expand_btn = gtk_button_new();
     gtk_widget_set_size_request(expand_btn, 44, 44);
-    const gchar *initial_icon = layout_get_expand_icon(state->layout, FALSE);
-    GtkWidget *expand_icon = gtk_image_new_from_file(initial_icon);
+    const gchar *initial_icon_name = layout_get_expand_icon(state->layout, FALSE);
+    gchar *expand_icon_path = get_icon_path(initial_icon_name);
+    GtkWidget *expand_icon = gtk_image_new_from_file(expand_icon_path);
+    free_path(expand_icon_path);
     state->expand_icon = expand_icon;
     gtk_image_set_pixel_size(GTK_IMAGE(expand_icon), 20);
     gtk_button_set_child(GTK_BUTTON(expand_btn), expand_icon);
