@@ -3,11 +3,13 @@
 #include <gio/gio.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 #include "layout.h"
 #include "paths.h"
 
 typedef struct {
     GtkWidget *window;
+    GtkWidget *window_revealer;
     GtkWidget *revealer;
     GtkWidget *play_icon;
     GtkWidget *expand_icon;
@@ -19,6 +21,7 @@ typedef struct {
     GtkWidget *progress_bar;
     gboolean is_playing;
     gboolean is_expanded;
+    gboolean is_visible;
     GDBusProxy *mpris_proxy;
     gchar *current_player;
     guint update_timer;
@@ -27,6 +30,82 @@ typedef struct {
 
 static void update_position(AppState *state);
 static void update_metadata(AppState *state);
+static void on_expand_clicked(GtkButton *button, gpointer user_data);
+
+// Global state for signal handlers
+static AppState *global_state = NULL;
+
+// ========================================
+// SIGNAL HANDLERS FOR KEYBINDS
+// ========================================
+
+static void on_window_hide_complete(GObject *revealer, GParamSpec *pspec, gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    
+    if (!gtk_revealer_get_child_revealed(GTK_REVEALER(state->window_revealer))) {
+        gtk_window_set_default_size(GTK_WINDOW(state->window), 1, 1);
+        g_print("HyprWave hidden (animation complete)\n");
+    }
+}
+
+static void handle_sigusr1(int sig) {
+    if (!global_state) return;
+    
+    global_state->is_visible = !global_state->is_visible;
+    
+    if (!global_state->is_visible) {
+        // HIDE: Slide out animation
+        g_print("Hiding HyprWave...\n");
+        
+        // First collapse expanded section if open
+        if (global_state->is_expanded) {
+            global_state->is_expanded = FALSE;
+            gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), FALSE);
+        }
+        
+        // Slide out the entire window
+        gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), FALSE);
+        
+    } else {
+        // SHOW: Slide in animation
+        g_print("Showing HyprWave...\n");
+        gtk_window_set_default_size(GTK_WINDOW(global_state->window), -1, -1);
+        gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), TRUE);
+    }
+}
+
+static void handle_sigusr2(int sig) {
+    if (!global_state) return;
+    
+    // Use our tracked state AND check revealer for actual visibility
+    gboolean window_revealed = gtk_revealer_get_reveal_child(GTK_REVEALER(global_state->window_revealer));
+    
+    if (!window_revealed || !global_state->is_visible) {
+        // HyprWave is hidden - show it AND expand in one motion
+        g_print("HyprWave is hidden, showing and expanding...\n");
+        
+        // Show the window first
+        gtk_window_set_default_size(GTK_WINDOW(global_state->window), -1, -1);
+        gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), TRUE);
+        global_state->is_visible = TRUE;
+        
+        // Then expand
+        global_state->is_expanded = TRUE;
+        gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), TRUE);
+        
+        // Update icon to expanded state
+        const gchar *icon_name = layout_get_expand_icon(global_state->layout, TRUE);
+        gchar *icon_path = get_icon_path(icon_name);
+        gtk_image_set_from_file(GTK_IMAGE(global_state->expand_icon), icon_path);
+        free_path(icon_path);
+        
+        return;
+    }
+    
+    // Window is visible - just toggle expand normally
+    g_print("Toggling expand state...\n");
+    on_expand_clicked(NULL, global_state);
+}
 
 // ========================================
 // HELPER FUNCTIONS
@@ -404,7 +483,11 @@ static void load_css() {
     GtkCssProvider *provider = gtk_css_provider_new();
     
     gchar *css_path = get_style_path();
+    g_print("Attempting to load CSS from: %s\n", css_path);
+    
     gtk_css_provider_load_from_path(provider, css_path);
+    g_print("CSS loaded successfully!\n");
+    
     free_path(css_path);
     
     gtk_style_context_add_provider_for_display(
@@ -437,6 +520,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
     layout_setup_window_anchors(GTK_WINDOW(window), state->layout);
     
     gtk_layer_set_keyboard_mode(GTK_WINDOW(window), GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
+    
+    // Set window as transparent app-paintable
+    gtk_widget_set_name(window, "hyprwave-window");
+    
+    // CRITICAL: Make the window background fully transparent
+    GdkRGBA transparent = {0, 0, 0, 0};
     gtk_widget_add_css_class(window, "hyprwave-window");
     
     // Create widget elements
@@ -550,8 +639,76 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // Create main container using layout module
     GtkWidget *main_container = layout_create_main_container(state->layout, control_bar, revealer);
     
-    gtk_window_set_child(GTK_WINDOW(window), main_container);
+    // Wrap main_container in a window-level revealer for hide/show animation
+    GtkWidget *window_revealer = gtk_revealer_new();
+    state->window_revealer = window_revealer;
+    
+    // Set transition based on layout edge
+    GtkRevealerTransitionType window_transition;
+    if (state->layout->edge == EDGE_RIGHT) {
+        window_transition = GTK_REVEALER_TRANSITION_TYPE_SLIDE_LEFT;
+    } else if (state->layout->edge == EDGE_LEFT) {
+        window_transition = GTK_REVEALER_TRANSITION_TYPE_SLIDE_RIGHT;
+    } else if (state->layout->edge == EDGE_TOP) {
+        window_transition = GTK_REVEALER_TRANSITION_TYPE_SLIDE_UP;
+    } else {
+        window_transition = GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN;
+    }
+    
+    gtk_revealer_set_transition_type(GTK_REVEALER(window_revealer), window_transition);
+    gtk_revealer_set_transition_duration(GTK_REVEALER(window_revealer), 300);
+    gtk_revealer_set_child(GTK_REVEALER(window_revealer), main_container);
+    gtk_revealer_set_reveal_child(GTK_REVEALER(window_revealer), TRUE);
+    
+    g_signal_connect(window_revealer, "notify::child-revealed", 
+                     G_CALLBACK(on_window_hide_complete), state);
+    
+    gtk_window_set_child(GTK_WINDOW(window), window_revealer);
     gtk_window_present(GTK_WINDOW(window));
+    
+    // Setup signal handlers for keybinds
+    global_state = state;
+    signal(SIGUSR1, handle_sigusr1);
+    signal(SIGUSR2, handle_sigusr2);
+    
+    // Print keybind setup instructions on first run
+    static gboolean first_run_check = FALSE;
+    gchar *config_check = g_build_filename(g_get_user_config_dir(), "hyprwave", ".setup_complete", NULL);
+    
+    if (!g_file_test(config_check, G_FILE_TEST_EXISTS)) {
+        first_run_check = TRUE;
+        // Create marker file
+        g_file_set_contents(config_check, "1", -1, NULL);
+    }
+    g_free(config_check);
+    
+    if (first_run_check) {
+        g_print("\n");
+        g_print("═══════════════════════════════════════════════════════════\n");
+        g_print("  🎵 HyprWave Keybind Setup\n");
+        g_print("═══════════════════════════════════════════════════════════\n");
+        g_print("\n");
+        g_print("Add these keybinds to your compositor config:\n");
+        g_print("\n");
+        g_print("Hyprland (~/.config/hypr/hyprland.conf):\n");
+        g_print("  bind = SUPER_SHIFT, M, exec, hyprwave-toggle visibility\n");
+        g_print("  bind = SUPER, M, exec, hyprwave-toggle expand\n");
+        g_print("\n");
+        g_print("Niri (~/.config/niri/config.kdl):\n");
+        g_print("  binds {\n");
+        g_print("      Mod+Shift+M { spawn \"hyprwave-toggle\" \"visibility\"; }\n");
+        g_print("      Mod+M { spawn \"hyprwave-toggle\" \"expand\"; }\n");
+        g_print("  }\n");
+        g_print("\n");
+        g_print("Then reload your compositor config.\n");
+        g_print("\n");
+        g_print("Keybinds:\n");
+        g_print("  • %s - Hide/show HyprWave\n", state->layout->toggle_visibility_bind);
+        g_print("  • %s - Toggle album details\n", state->layout->toggle_expand_bind);
+        g_print("\n");
+        g_print("═══════════════════════════════════════════════════════════\n");
+        g_print("\n");
+    }
     
     // Find and connect to active media player
     find_active_player(state);
