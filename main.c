@@ -6,6 +6,7 @@
 #include <signal.h>
 #include "layout.h"
 #include "paths.h"
+#include "notification.h"
 
 typedef struct {
     GtkWidget *window;
@@ -26,6 +27,8 @@ typedef struct {
     gchar *current_player;
     guint update_timer;
     LayoutConfig *layout;
+    NotificationState *notification;
+    gchar *last_track_id;
 } AppState;
 
 static void update_position(AppState *state);
@@ -76,33 +79,12 @@ static void handle_sigusr1(int sig) {
 
 static void handle_sigusr2(int sig) {
     if (!global_state) return;
-    
-    // Use our tracked state AND check revealer for actual visibility
-    gboolean window_revealed = gtk_revealer_get_reveal_child(GTK_REVEALER(global_state->window_revealer));
-    
-    if (!window_revealed || !global_state->is_visible) {
-        // HyprWave is hidden - show it AND expand in one motion
-        g_print("HyprWave is hidden, showing and expanding...\n");
-        
-        // Show the window first
-        gtk_window_set_default_size(GTK_WINDOW(global_state->window), -1, -1);
-        gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), TRUE);
-        global_state->is_visible = TRUE;
-        
-        // Then expand
-        global_state->is_expanded = TRUE;
-        gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), TRUE);
-        
-        // Update icon to expanded state
-        const gchar *icon_name = layout_get_expand_icon(global_state->layout, TRUE);
-        gchar *icon_path = get_icon_path(icon_name);
-        gtk_image_set_from_file(GTK_IMAGE(global_state->expand_icon), icon_path);
-        free_path(icon_path);
-        
+    if (!global_state->is_visible) {
+        g_print("Cannot toggle expand: HyprWave is hidden\n");
         return;
     }
     
-    // Window is visible - just toggle expand normally
+    // Toggle expand by simulating button click
     g_print("Toggling expand state...\n");
     on_expand_clicked(NULL, global_state);
 }
@@ -217,6 +199,7 @@ static void update_metadata(AppState *state) {
     const gchar *title = NULL;
     const gchar *artist = NULL;
     const gchar *art_url = NULL;
+    const gchar *track_id = NULL;
     
     g_variant_iter_init(&iter, metadata);
     while (g_variant_iter_loop(&iter, "{sv}", &key, &value)) {
@@ -233,6 +216,31 @@ static void update_metadata(AppState *state) {
         else if (g_strcmp0(key, "mpris:artUrl") == 0) {
             art_url = g_variant_get_string(value, NULL);
         }
+        else if (g_strcmp0(key, "mpris:trackid") == 0) {
+            track_id = g_variant_get_string(value, NULL);
+        }
+    }
+    
+    // Check if track changed for notification
+    gboolean track_changed = FALSE;
+    if (track_id && state->last_track_id) {
+        track_changed = (g_strcmp0(track_id, state->last_track_id) != 0);
+    } else if (track_id && !state->last_track_id) {
+        track_changed = TRUE;
+    }
+    
+    // Update last track ID
+    if (track_id) {
+        g_free(state->last_track_id);
+        state->last_track_id = g_strdup(track_id);
+    }
+    g_print("DEBUG: track_changed=%d, notif_enabled=%d, now_playing=%d, notification=%p\n",
+        track_changed, state->layout->notifications_enabled, 
+        state->layout->now_playing_enabled, state->notification);
+    // Show notification if track changed and notifications enabled
+    if (track_changed && state->layout->notifications_enabled && 
+        state->layout->now_playing_enabled && state->notification) {
+        notification_show(state->notification, title, artist, art_url, "Now Playing");
     }
     
     if (title && strlen(title) > 0) {
@@ -502,9 +510,19 @@ static void activate(GtkApplication *app, gpointer user_data) {
     AppState *state = g_new0(AppState, 1);
     state->is_playing = FALSE;
     state->is_expanded = FALSE;
+    state->is_visible = TRUE;           // ADD THIS
     state->mpris_proxy = NULL;
     state->current_player = NULL;
+    state->last_track_id = NULL;        // ADD THIS
     state->layout = layout_load_config();
+    
+    // ADD THESE LINES:
+    // Initialize notification system
+    state->notification = notification_init(app);
+    g_print("DEBUG: Notification initialized: %p\n", state->notification);
+    if (!state->notification) {
+        g_printerr("ERROR: Failed to initialize notification system!\n");
+    }
     
     GtkWidget *window = gtk_application_window_new(app);
     state->window = window;
