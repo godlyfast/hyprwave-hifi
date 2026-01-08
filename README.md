@@ -99,12 +99,14 @@ The installer will:
 
 ✅ **Fully Supported:**
 - Spotify (Desktop app)
+- TIDAL (via tidal-hifi)
 - VLC Media Player
 - Roon (via MPRIS bridge - see setup below)
+- Cider (Apple Music client)
 - Any MPRIS2-compatible player (Rhythmbox, Audacious, MPD with mpDris2, etc.)
 
 ⚠️ **Limited Support:**
-- Web browsers - Basic controls only, limited metadata
+- Web browsers - Filtered by default (limited MPRIS metadata)
 
 ### Roon Setup
 
@@ -170,6 +172,43 @@ now_playing = true
 - **`enabled = true`** - Master switch for all notifications
 - **`now_playing = true`** - Show "Now Playing" notifications when tracks change
 
+### Custom Theme (User CSS)
+
+Create `~/.config/hyprwave/user.css` to customize the appearance without modifying the default theme. User CSS loads with higher priority and overrides the default styles.
+
+**Example dark theme:**
+
+```css
+/* Force transparency */
+window, .background {
+    background-color: transparent;
+    background-image: none;
+}
+
+/* Dark containers */
+.control-container, .expanded-section {
+    background: linear-gradient(145deg, rgba(30, 30, 35, 0.9), rgba(20, 20, 25, 0.9));
+    border: 1px solid rgba(60, 60, 70, 0.5);
+}
+
+/* Dark buttons */
+.control-button {
+    background: linear-gradient(145deg, rgba(50, 50, 58, 0.95), rgba(40, 40, 48, 0.95));
+}
+
+/* Light text */
+.track-title { color: rgba(240, 240, 245, 0.95); }
+.artist-label { color: rgba(180, 180, 190, 0.85); }
+```
+
+**Available CSS classes:**
+- `.control-container` - Main button bar
+- `.expanded-section` - Album details panel
+- `.control-button` - Media control buttons
+- `.album-cover` - Album art container
+- `.track-title`, `.artist-label` - Text labels
+- `.player-label` - Clickable player selector
+- `.track-progress` - Progress bar
 
 How notifications will appear on your setup-
 
