@@ -42,6 +42,7 @@ A sleek, modern music control overlay for Wayland compositors (Hyprland, Niri, S
 - **Expandable Panel** - Toggle to reveal detailed track information
 - **Keybind Support** - Hide/show and expand with keyboard shortcuts
 - **Now Playing Notifications** - Elegant slide-in notifications for track changes (v0.4.0)
+- **Player Switching** - Click to cycle through available MPRIS players (Spotify, VLC, Roon zones, etc.)
 - **Configurable Layout** - Position on any screen edge (left, right, top, bottom)
 - **Minimal Resource Usage** - ~80-95MB RAM, <0.3% CPU
 
@@ -127,7 +128,7 @@ Then:
 3. Enable "Roon MPRIS Multi-Zone Bridge"
 4. HyprWave will auto-detect all your Roon zones
 
-**Zone Switching:** Click the zone label in the expanded view to cycle through available zones. Your preference is saved automatically.
+**Player Switching:** Click the player label in the expanded view to cycle through all available MPRIS players (including Roon zones). Your preference is saved automatically.
 
 **Note:** Volume control requires the Roon app directly.
 
@@ -301,9 +302,9 @@ Config: `~/.config/hyprwave/config.conf`
 - [x] Now Playing notifications with smooth slide animations
 - [x] Configurable notification settings
 - [x] Album art in notifications
+- [x] Multiple player switching (cycle through Spotify, VLC, Roon zones, etc.)
 
 ### v0.5.0 (Planned)
-- [ ] Multiple player switching
 - [ ] Volume control integration
 - [ ] Customizable notification duration
 

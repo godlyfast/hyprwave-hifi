@@ -20,21 +20,21 @@ typedef struct {
     GtkWidget *artist_label;
     GtkWidget *time_remaining;
     GtkWidget *progress_bar;
-    GtkWidget *zone_label;       // Zone display
+    GtkWidget *player_label;     // Player selector display
     gboolean is_playing;
     gboolean is_expanded;
     gboolean is_visible;
     GDBusProxy *mpris_proxy;
-    gchar *current_player;
+    gchar *current_player;       // D-Bus name of current player
     guint update_timer;
     LayoutConfig *layout;
     NotificationState *notification;
     gchar *last_track_id;
-    // Zone control
-    gchar **zones;               // Array of zone names
-    gint zone_count;
-    gint current_zone_index;
-    gchar *current_zone;
+    // Player switching
+    gchar **players;             // Array of MPRIS player D-Bus names
+    gint player_count;
+    gint current_player_index;
+    gchar *player_display_name;  // Human-readable name from Identity
 } AppState;
 
 static void update_position(AppState *state);
@@ -42,36 +42,33 @@ static void update_metadata(AppState *state);
 static void on_expand_clicked(GtkButton *button, gpointer user_data);
 static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_properties,
                                   GStrv invalidated_properties, gpointer user_data);
-static void load_zones(AppState *state);
-static void set_zone(AppState *state, const gchar *zone_name);
+static void load_available_players(AppState *state);
+static void switch_to_player(AppState *state, const gchar *bus_name);
 
 // Global state for signal handlers
 static AppState *global_state = NULL;
 
 // ========================================
-// ZONE CONTROL FUNCTIONS
+// PLAYER SWITCHING FUNCTIONS
 // ========================================
 
-// Extract display name from MPRIS Identity (e.g., "Roon - NUC HQP5" -> "NUC HQP5")
-static gchar* extract_zone_display_name(const gchar *identity) {
-    if (!identity) return g_strdup("Unknown");
-
-    // Look for "Roon - " prefix
-    const gchar *prefix = "Roon - ";
-    if (g_str_has_prefix(identity, prefix)) {
-        return g_strdup(identity + strlen(prefix));
-    }
-    return g_strdup(identity);
+// Check if a D-Bus name should be excluded from player list
+static gboolean is_excluded_player(const gchar *name) {
+    // Skip browsers (limited MPRIS support) and playerctld (proxy)
+    return g_strstr_len(name, -1, "chromium") != NULL ||
+           g_strstr_len(name, -1, "firefox") != NULL ||
+           g_strstr_len(name, -1, "brave") != NULL ||
+           g_strstr_len(name, -1, "playerctld") != NULL;
 }
 
-// Load available Roon zones from D-Bus (each zone is a separate MPRIS player)
-static void load_zones(AppState *state) {
-    // Free previous zones
-    if (state->zones) {
-        g_strfreev(state->zones);
-        state->zones = NULL;
+// Load all available MPRIS players from D-Bus
+static void load_available_players(AppState *state) {
+    // Free previous list
+    if (state->players) {
+        g_strfreev(state->players);
+        state->players = NULL;
     }
-    state->zone_count = 0;
+    state->player_count = 0;
 
     GError *error = NULL;
     GDBusProxy *dbus_proxy = g_dbus_proxy_new_for_bus_sync(
@@ -108,12 +105,13 @@ static void load_zones(AppState *state) {
     g_variant_get(result, "(as)", &iter);
 
     const gchar *name;
-    GPtrArray *zone_arr = g_ptr_array_new();
+    GPtrArray *player_arr = g_ptr_array_new();
 
-    // Find all roon_* MPRIS players
+    // Find all MPRIS players (excluding browsers and playerctld)
     while (g_variant_iter_loop(iter, "&s", &name)) {
-        if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.roon_")) {
-            g_ptr_array_add(zone_arr, g_strdup(name));
+        if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.") &&
+            !is_excluded_player(name)) {
+            g_ptr_array_add(player_arr, g_strdup(name));
         }
     }
 
@@ -121,40 +119,40 @@ static void load_zones(AppState *state) {
     g_variant_unref(result);
     g_object_unref(dbus_proxy);
 
-    g_ptr_array_add(zone_arr, NULL);
-    state->zones = (gchar **)g_ptr_array_free(zone_arr, FALSE);
+    g_ptr_array_add(player_arr, NULL);
+    state->players = (gchar **)g_ptr_array_free(player_arr, FALSE);
 
-    // Count zones
-    state->zone_count = 0;
-    for (gchar **z = state->zones; *z; z++) state->zone_count++;
+    // Count players
+    state->player_count = 0;
+    for (gchar **p = state->players; *p; p++) state->player_count++;
 
-    // Find current zone index
-    state->current_zone_index = -1;
-    if (state->current_player && state->zones) {
-        for (int i = 0; state->zones[i]; i++) {
-            if (g_strcmp0(state->zones[i], state->current_player) == 0) {
-                state->current_zone_index = i;
+    // Find current player index
+    state->current_player_index = -1;
+    if (state->current_player && state->players) {
+        for (int i = 0; state->players[i]; i++) {
+            if (g_strcmp0(state->players[i], state->current_player) == 0) {
+                state->current_player_index = i;
                 break;
             }
         }
     }
 
-    // Update zone label with display name from current player's Identity
-    if (state->zone_label) {
-        if (state->current_zone) {
-            gtk_label_set_text(GTK_LABEL(state->zone_label), state->current_zone);
-        } else if (state->zone_count > 0) {
-            gtk_label_set_text(GTK_LABEL(state->zone_label), "Click to select");
+    // Update player label
+    if (state->player_label) {
+        if (state->player_display_name) {
+            gtk_label_set_text(GTK_LABEL(state->player_label), state->player_display_name);
+        } else if (state->player_count > 0) {
+            gtk_label_set_text(GTK_LABEL(state->player_label), "Click to select");
         } else {
-            gtk_label_set_text(GTK_LABEL(state->zone_label), "No Roon");
+            gtk_label_set_text(GTK_LABEL(state->player_label), "No players");
         }
     }
 }
 
-// Save preferred zone to config file
-static void save_preferred_zone(const gchar *bus_name) {
+// Save preferred player to config file
+static void save_preferred_player(const gchar *bus_name) {
     gchar *config_dir = g_build_filename(g_get_user_config_dir(), "hyprwave", NULL);
-    gchar *pref_file = g_build_filename(config_dir, "preferred_zone", NULL);
+    gchar *pref_file = g_build_filename(config_dir, "preferred_player", NULL);
 
     g_mkdir_with_parents(config_dir, 0755);
     g_file_set_contents(pref_file, bus_name, -1, NULL);
@@ -163,9 +161,9 @@ static void save_preferred_zone(const gchar *bus_name) {
     g_free(config_dir);
 }
 
-// Load preferred zone from config file
-static gchar* load_preferred_zone(void) {
-    gchar *pref_file = g_build_filename(g_get_user_config_dir(), "hyprwave", "preferred_zone", NULL);
+// Load preferred player from config file
+static gchar* load_preferred_player(void) {
+    gchar *pref_file = g_build_filename(g_get_user_config_dir(), "hyprwave", "preferred_player", NULL);
     gchar *contents = NULL;
 
     if (g_file_get_contents(pref_file, &contents, NULL, NULL)) {
@@ -176,11 +174,11 @@ static gchar* load_preferred_zone(void) {
     return contents;
 }
 
-// Switch to a specific Roon zone (by D-Bus name)
-static void set_zone(AppState *state, const gchar *bus_name) {
+// Switch to a specific MPRIS player (by D-Bus name)
+static void switch_to_player(AppState *state, const gchar *bus_name) {
     if (!bus_name) return;
 
-    // Connect to the new player
+    // Disconnect from current player
     if (state->mpris_proxy) {
         g_object_unref(state->mpris_proxy);
         state->mpris_proxy = NULL;
@@ -202,7 +200,7 @@ static void set_zone(AppState *state, const gchar *bus_name) {
     );
 
     if (error) {
-        g_printerr("Failed to connect to zone: %s\n", error->message);
+        g_printerr("Failed to connect to player: %s\n", error->message);
         g_error_free(error);
         return;
     }
@@ -226,49 +224,49 @@ static void set_zone(AppState *state, const gchar *bus_name) {
         GVariant *identity = g_dbus_proxy_get_cached_property(player_proxy, "Identity");
         if (identity) {
             const gchar *id_str = g_variant_get_string(identity, NULL);
-            g_free(state->current_zone);
-            state->current_zone = extract_zone_display_name(id_str);
+            g_free(state->player_display_name);
+            state->player_display_name = g_strdup(id_str);
             g_variant_unref(identity);
         }
         g_object_unref(player_proxy);
     }
 
     // Update display and save preference
-    if (state->zone_label && state->current_zone) {
-        gtk_label_set_text(GTK_LABEL(state->zone_label), state->current_zone);
+    if (state->player_label && state->player_display_name) {
+        gtk_label_set_text(GTK_LABEL(state->player_label), state->player_display_name);
     }
-    save_preferred_zone(bus_name);
+    save_preferred_player(bus_name);
 
-    g_print("Switched to zone: %s (%s)\n", state->current_zone, bus_name);
+    g_print("Switched to player: %s (%s)\n", state->player_display_name, bus_name);
 
     // Update metadata
     update_metadata(state);
 }
 
-static void cycle_zone(AppState *state, gboolean forward) {
-    // Refresh zone list from D-Bus
-    load_zones(state);
+static void cycle_player(AppState *state, gboolean forward) {
+    // Refresh player list from D-Bus
+    load_available_players(state);
 
-    if (!state->zones || state->zone_count == 0) {
-        g_print("No Roon zones available\n");
+    if (!state->players || state->player_count == 0) {
+        g_print("No MPRIS players available\n");
         return;
     }
 
     gint new_index;
-    if (state->current_zone_index < 0) {
+    if (state->current_player_index < 0) {
         new_index = 0;
     } else if (forward) {
-        new_index = (state->current_zone_index + 1) % state->zone_count;
+        new_index = (state->current_player_index + 1) % state->player_count;
     } else {
-        new_index = (state->current_zone_index - 1 + state->zone_count) % state->zone_count;
+        new_index = (state->current_player_index - 1 + state->player_count) % state->player_count;
     }
 
-    set_zone(state, state->zones[new_index]);
+    switch_to_player(state, state->players[new_index]);
 }
 
-static void on_zone_clicked(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
+static void on_player_clicked(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    cycle_zone(state, TRUE);
+    cycle_player(state, TRUE);
 }
 
 // ========================================
@@ -618,32 +616,30 @@ static void connect_to_player(AppState *state, const gchar *bus_name) {
     g_signal_connect(state->mpris_proxy, "g-properties-changed",
                      G_CALLBACK(on_properties_changed), state);
 
-    // For Roon players, extract and set zone display name
-    if (g_str_has_prefix(bus_name, "org.mpris.MediaPlayer2.roon_")) {
-        GDBusProxy *player_proxy = g_dbus_proxy_new_for_bus_sync(
-            G_BUS_TYPE_SESSION,
-            G_DBUS_PROXY_FLAGS_NONE,
-            NULL,
-            bus_name,
-            "/org/mpris/MediaPlayer2",
-            "org.mpris.MediaPlayer2",
-            NULL,
-            NULL
-        );
+    // Get display name from Identity for all players
+    GDBusProxy *player_proxy = g_dbus_proxy_new_for_bus_sync(
+        G_BUS_TYPE_SESSION,
+        G_DBUS_PROXY_FLAGS_NONE,
+        NULL,
+        bus_name,
+        "/org/mpris/MediaPlayer2",
+        "org.mpris.MediaPlayer2",
+        NULL,
+        NULL
+    );
 
-        if (player_proxy) {
-            GVariant *identity = g_dbus_proxy_get_cached_property(player_proxy, "Identity");
-            if (identity) {
-                const gchar *id_str = g_variant_get_string(identity, NULL);
-                g_free(state->current_zone);
-                state->current_zone = extract_zone_display_name(id_str);
-                if (state->zone_label) {
-                    gtk_label_set_text(GTK_LABEL(state->zone_label), state->current_zone);
-                }
-                g_variant_unref(identity);
+    if (player_proxy) {
+        GVariant *identity = g_dbus_proxy_get_cached_property(player_proxy, "Identity");
+        if (identity) {
+            const gchar *id_str = g_variant_get_string(identity, NULL);
+            g_free(state->player_display_name);
+            state->player_display_name = g_strdup(id_str);
+            if (state->player_label) {
+                gtk_label_set_text(GTK_LABEL(state->player_label), state->player_display_name);
             }
-            g_object_unref(player_proxy);
+            g_variant_unref(identity);
         }
+        g_object_unref(player_proxy);
     }
 
     update_metadata(state);
@@ -686,47 +682,34 @@ static void find_active_player(AppState *state) {
     g_variant_get(result, "(as)", &iter);
 
     const gchar *name;
-    const gchar *fallback_player = NULL;
-    const gchar *first_roon = NULL;
-    gchar *preferred_zone = load_preferred_zone();
+    const gchar *first_player = NULL;
+    gchar *preferred_player = load_preferred_player();
 
-    // Collect MPRIS players
+    // Find MPRIS players
     while (g_variant_iter_loop(iter, "&s", &name)) {
-        if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.")) {
-            // Check for preferred Roon zone first
-            if (preferred_zone && g_strcmp0(name, preferred_zone) == 0) {
+        if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.") &&
+            !is_excluded_player(name)) {
+            // Check for preferred player first
+            if (preferred_player && g_strcmp0(name, preferred_player) == 0) {
                 connect_to_player(state, name);
                 g_variant_iter_free(iter);
                 g_variant_unref(result);
                 g_object_unref(dbus_proxy);
-                g_free(preferred_zone);
+                g_free(preferred_player);
                 return;
             }
-            // Remember first Roon player as fallback
-            if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.roon_")) {
-                if (!first_roon) {
-                    first_roon = g_strdup(name);
-                }
-            }
-            // Skip browsers and playerctld for non-Roon fallback
-            else if (g_strstr_len(name, -1, "chromium") == NULL &&
-                g_strstr_len(name, -1, "firefox") == NULL &&
-                g_strstr_len(name, -1, "brave") == NULL &&
-                g_strstr_len(name, -1, "playerctld") == NULL) {
-                if (!fallback_player) {
-                    fallback_player = g_strdup(name);
-                }
+            // Remember first valid player as fallback
+            if (!first_player) {
+                first_player = g_strdup(name);
             }
         }
     }
 
-    g_free(preferred_zone);
+    g_free(preferred_player);
 
-    // Priority: first Roon zone > other players
-    if (first_roon) {
-        connect_to_player(state, first_roon);
-    } else if (fallback_player) {
-        connect_to_player(state, fallback_player);
+    // Use first available player if no preferred found
+    if (first_player) {
+        connect_to_player(state, first_player);
     }
 
     g_variant_iter_free(iter);
@@ -853,10 +836,10 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->source_label = source_label;
     gtk_widget_add_css_class(source_label, "source-label");
 
-    // Zone label (clickable to cycle zones)
-    GtkWidget *zone_label = gtk_label_new("No Zone");
-    state->zone_label = zone_label;
-    gtk_widget_add_css_class(zone_label, "zone-label");
+    // Player label (clickable to cycle players)
+    GtkWidget *player_label = gtk_label_new("No Player");
+    state->player_label = player_label;
+    gtk_widget_add_css_class(player_label, "player-label");
 
     GtkWidget *track_title = gtk_label_new("No Track Playing");
     state->track_title = track_title;
@@ -881,16 +864,16 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_add_css_class(time_remaining, "time-remaining");
     
     // Create expanded section using layout module
-    // Add click gesture to zone label for cycling zones
-    GtkGesture *zone_click = gtk_gesture_click_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(zone_click), GDK_BUTTON_PRIMARY);
-    g_signal_connect(zone_click, "pressed", G_CALLBACK(on_zone_clicked), state);
-    gtk_widget_add_controller(zone_label, GTK_EVENT_CONTROLLER(zone_click));
+    // Add click gesture to player label for cycling players
+    GtkGesture *player_click = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(player_click), GDK_BUTTON_PRIMARY);
+    g_signal_connect(player_click, "pressed", G_CALLBACK(on_player_clicked), state);
+    gtk_widget_add_controller(player_label, GTK_EVENT_CONTROLLER(player_click));
 
     ExpandedWidgets expanded_widgets = {
         .album_cover = album_cover,
         .source_label = source_label,
-        .zone_label = zone_label,
+        .player_label = player_label,
         .track_title = track_title,
         .artist_label = artist_label,
         .progress_bar = progress_bar,
@@ -1040,8 +1023,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // Find and connect to active media player
     find_active_player(state);
 
-    // Load available zones
-    load_zones(state);
+    // Load available players
+    load_available_players(state);
 
     // Update position every second
     state->update_timer = g_timeout_add_seconds(1, update_position_tick, state);

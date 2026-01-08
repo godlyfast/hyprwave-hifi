@@ -185,8 +185,8 @@ revealer > * {
     letter-spacing: 0.5px;
 }
 
-/* Zone label (clickable to cycle zones) */
-.zone-label {
+/* Player label (clickable to cycle players) */
+.player-label {
     color: var(--text-secondary);
     font-size: 10px;
     font-weight: 500;
@@ -197,7 +197,7 @@ revealer > * {
     cursor: pointer;
 }
 
-.zone-label:hover {
+.player-label:hover {
     background: rgba(100, 120, 140, 0.35);
 }
 
