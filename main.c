@@ -154,9 +154,13 @@ static void load_available_players(AppState *state) {
 static void save_preferred_player(const gchar *bus_name) {
     gchar *config_dir = g_build_filename(g_get_user_config_dir(), "hyprwave", NULL);
     gchar *pref_file = g_build_filename(config_dir, "preferred_player", NULL);
+    GError *error = NULL;
 
     g_mkdir_with_parents(config_dir, 0755);
-    g_file_set_contents(pref_file, bus_name, -1, NULL);
+    if (!g_file_set_contents(pref_file, bus_name, -1, &error)) {
+        g_warning("Failed to save preferred player: %s", error->message);
+        g_error_free(error);
+    }
 
     g_free(pref_file);
     g_free(config_dir);
@@ -203,6 +207,8 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
     if (error) {
         g_printerr("Failed to connect to player: %s\n", error->message);
         g_error_free(error);
+        g_free(state->current_player);
+        state->current_player = NULL;
         return;
     }
 
@@ -707,6 +713,7 @@ static void find_active_player(AppState *state) {
                 g_variant_unref(result);
                 g_object_unref(dbus_proxy);
                 g_free(preferred_player);
+                g_free(first_player);
                 return;
             }
             // Remember first valid player as fallback
@@ -793,7 +800,7 @@ static void load_css() {
     gtk_style_context_add_provider_for_display(
         gdk_display_get_default(),
         GTK_STYLE_PROVIDER(provider),
-        GTK_STYLE_PROVIDER_PRIORITY_USER + 100
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
     );
     g_object_unref(provider);
 }
