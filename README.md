@@ -1,6 +1,14 @@
-# 🌊 HyprWave
+# 🌊 HyprWave - v0.4 (latest release)
 
 A sleek, modern music control bar for Wayland compositors (Hyprland, Niri, Sway, etc.) with MPRIS integration.
+
+
+Updates till now:  - Multi-Anchor support, Notifications, Music Controls, CSS Styling (control bar, expanded section and notifications), and launching it as an application in latest update.
+
+
+#### 📸 Screenshots
+
+
 ### Right
 <img width="1331" height="768" alt="image" src="https://github.com/user-attachments/assets/f5e7681d-942e-46f0-84f4-e789dca326cd" />
 <img width="1331" height="768" alt="image" src="https://github.com/user-attachments/assets/e32bda28-491a-419c-890b-3fad5975cc98" />
@@ -19,7 +27,6 @@ A sleek, modern music control bar for Wayland compositors (Hyprland, Niri, Sway,
 <img width="1331" height="768" alt="image" src="https://github.com/user-attachments/assets/697b6ccb-ccad-422e-9d5c-ff75c2cc9645" />
 <img width="1331" height="768" alt="image" src="https://github.com/user-attachments/assets/b6f5a8a6-d251-48c7-a7a3-1c19fa119539" />
 
-
 # HyprWave 🎵
 
 A sleek, modern music control overlay for Wayland compositors (Hyprland, Niri, Sway). Built with GTK4 and gtk4-layer-shell.
@@ -33,6 +40,7 @@ A sleek, modern music control overlay for Wayland compositors (Hyprland, Niri, S
 - **Full Playback Controls** - Play/Pause, Next, Previous buttons
 - **Expandable Panel** - Toggle to reveal detailed track information
 - **Keybind Support** - Hide/show and expand with keyboard shortcuts
+- **Now Playing Notifications** - Elegant slide-in notifications for track changes (v0.4.0)
 - **Configurable Layout** - Position on any screen edge (left, right, top, bottom)
 - **Minimal Resource Usage** - ~80-95MB RAM, <0.3% CPU
 
@@ -41,6 +49,9 @@ The control bar sits on your chosen screen edge with essential controls.
 
 ### Expanded State
 Shows album cover, track title, artist, progress bar, and time remaining.
+
+### Now Playing Notifications
+Smooth slide-in notifications appear in the top-right corner when tracks change, showing album art, song title, and artist.
 
 ## 🚀 Installation
 
@@ -90,11 +101,56 @@ The installer will:
 - Any MPRIS2-compatible player (Rhythmbox, Audacious, MPD with mpDris2, etc.)
 
 ⚠️ **Limited Support:**
-- Web browsers - Basic controls only, no metadata
+- Web browsers - Basic controls only, limited metadata
 
 ## ⚙️ Configuration
 
-### Keybinds (v0.3.0+)
+### Config File
+
+Edit `~/.config/hyprwave/config.conf`:
+
+```conf
+[General]
+# Edge to anchor HyprWave to
+# Options: right, left, top, bottom
+edge = right
+
+# Margin from the screen edge (in pixels)
+margin = 10
+
+[Keybinds]
+# Keybind labels (for display in setup message)
+toggle_visibility = Super+Shift+M
+toggle_expand = Super+M
+
+[Notifications]
+# Enable/disable notifications
+enabled = true
+
+# Show notification when song changes
+now_playing = true
+```
+
+**Layout Options:**
+- **`edge = right`** - Vertical layout on right edge (default)
+- **`edge = left`** - Vertical layout on left edge
+- **`edge = top`** - Horizontal layout on top edge
+- **`edge = bottom`** - Horizontal layout on bottom edge
+
+**Notification Options:**
+- **`enabled = true`** - Master switch for all notifications
+- **`now_playing = true`** - Show "Now Playing" notifications when tracks change
+
+
+How notifications will appear on your setup-
+
+
+
+https://github.com/user-attachments/assets/7328c91b-c9fa-43ac-a8fd-8c63c9b676d3
+
+
+
+### Keybinds
 
 HyprWave supports keybinds for toggling visibility and expanding details. **Add these to your compositor config:**
 
@@ -140,44 +196,14 @@ Then reload: `swaymsg reload`
 - **Toggle Visibility** (`Super+Shift+M`) - Smoothly hides/shows entire HyprWave with slide animation
 - **Toggle Expand** (`Super+M`) - Shows/hides album details
   - If HyprWave is hidden, this will show it AND expand in one smooth motion
+ 
+  ## Here's how they will look-
+
+  
+
+https://github.com/user-attachments/assets/5bd27ec4-6b51-46fb-bf6e-fcb3cb3252b1
 
 
-#Example of how it looks (Recorded on Niri)-
-
-
-
-https://github.com/user-attachments/assets/0fab205d-6f19-4561-b86e-5096f409f5b8
-
-
-(The lag is because I am screen recording and running a bunch of other stuff, in reality the animations are much smoother.)
-
-
-### Layout Configuration
-
-Edit `~/.config/hyprwave/config.conf`:
-
-```conf
-[General]
-# Edge to anchor HyprWave to
-# Options: right, left, top, bottom
-edge = right
-
-# Margin from the screen edge (in pixels)
-margin = 10
-
-[Keybinds]
-# Keybind labels (for display in setup message)
-toggle_visibility = Super+Shift+M
-toggle_expand = Super+M
-```
-
-**Layout Options:**
-- **`edge = right`** - Vertical layout on right edge (default)
-- **`edge = left`** - Vertical layout on left edge
-- **`edge = top`** - Horizontal layout on top edge
-- **`edge = bottom`** - Horizontal layout on bottom edge
-
-The UI automatically adapts to your chosen edge.
 
 ### Auto-start
 
@@ -193,6 +219,7 @@ Add to `~/.config/niri/config.kdl`:
 spawn-at-startup "hyprwave"
 ```
 
+
 ## 🔧 Troubleshooting
 
 ### Black box around HyprWave (Hyprland)
@@ -202,7 +229,14 @@ If you see a black box around HyprWave, disable blur for the overlay:
 Add to `hyprland.conf`:
 ```conf
 layerrule = noblur, hyprwave
+layerrule = noblur, hyprwave-notification
 ```
+If that doesn't work, it most probably is a broken gtk4 or gtk4-layer-shell package- just remove them, reinstall them, and try it again.
+### Notifications not appearing
+
+1. Check that notifications are enabled in `~/.config/hyprwave/config.conf`
+2. Verify both `enabled = true` and `now_playing = true` under `[Notifications]`
+3. Restart HyprWave after config changes
 
 ### Keybinds not working
 
@@ -235,15 +269,15 @@ Config: `~/.config/hyprwave/config.conf`
 
 ## 🗺️ Roadmap
 
-### v0.3.0 (Current)
-- [x] Keybind support for visibility and expand
-- [x] Smooth slide animations
-- [x] Show+expand in one motion when hidden
+### v0.4.0 (Current) ✨ NEW
+- [x] Now Playing notifications with smooth slide animations
+- [x] Configurable notification settings
+- [x] Album art in notifications
 
-### v0.4.0 (Planned)
+### v0.5.0 (Planned)
 - [ ] Multiple player switching
 - [ ] Volume control integration
-- [ ] Notification integration for track changes
+- [ ] Customizable notification duration
 
 ### v1.0.0 (Goals)
 - [ ] Theming system with pre-built themes
