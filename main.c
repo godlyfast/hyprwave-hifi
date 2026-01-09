@@ -194,7 +194,7 @@ static void load_available_players(AppState *state) {
         if (state->player_display_name) {
             gtk_label_set_text(GTK_LABEL(state->player_label), state->player_display_name);
         } else if (state->player_count > 0) {
-            gtk_label_set_text(GTK_LABEL(state->player_label), "Click to select");
+            gtk_label_set_text(GTK_LABEL(state->player_label), "Click to switch");
         } else {
             gtk_label_set_text(GTK_LABEL(state->player_label), "No players");
         }
