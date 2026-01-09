@@ -19,6 +19,7 @@ typedef struct {
     gchar *toggle_expand_bind;
     gboolean notifications_enabled;
     gboolean now_playing_enabled;
+    gchar *theme;  // "light" or "dark"
 } LayoutConfig;
 
 typedef struct {

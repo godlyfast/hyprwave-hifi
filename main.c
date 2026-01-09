@@ -7,6 +7,7 @@
 #include "layout.h"
 #include "paths.h"
 #include "notification.h"
+#include "art.h"
 
 typedef struct {
     GtkWidget *window;
@@ -35,6 +36,11 @@ typedef struct {
     gint player_count;
     gint current_player_index;
     gchar *player_display_name;  // Human-readable name from Identity
+    // Notification debounce
+    guint notification_timer;
+    gchar *pending_title;
+    gchar *pending_artist;
+    gchar *pending_art_url;
 } AppState;
 
 static void update_position(AppState *state);
@@ -55,11 +61,55 @@ static AppState *global_state = NULL;
 
 // Check if a D-Bus name should be excluded from player list
 static gboolean is_excluded_player(const gchar *name) {
-    // Skip browsers (limited MPRIS support) and playerctld (proxy)
-    return g_strstr_len(name, -1, "chromium") != NULL ||
-           g_strstr_len(name, -1, "firefox") != NULL ||
-           g_strstr_len(name, -1, "brave") != NULL ||
-           g_strstr_len(name, -1, "playerctld") != NULL;
+    // Always exclude playerctld (proxy that duplicates other players)
+    if (g_strstr_len(name, -1, "playerctld") != NULL)
+        return TRUE;
+
+    // Allow known Electron music apps (check Identity for these)
+    // They register as chromium but have full MPRIS support
+    // We'll check their Identity property separately
+
+    // Exclude browsers (limited MPRIS support)
+    if (g_strstr_len(name, -1, "firefox") != NULL ||
+        g_strstr_len(name, -1, "brave") != NULL)
+        return TRUE;
+
+    // For chromium instances, we need to check Identity to distinguish
+    // browser tabs from Electron apps like tidal-hifi
+    // This is handled in is_allowed_chromium_player()
+    return FALSE;
+}
+
+// Check if a chromium-based player is actually a music app (not browser tab)
+static gboolean is_allowed_chromium_player(const gchar *bus_name) {
+    if (g_strstr_len(bus_name, -1, "chromium") == NULL)
+        return TRUE;  // Not chromium, allow
+
+    // Query Identity to check if it's a known music app
+    GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync(
+        G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, NULL,
+        bus_name, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2",
+        NULL, NULL
+    );
+
+    if (!proxy) return FALSE;
+
+    GVariant *identity = g_dbus_proxy_get_cached_property(proxy, "Identity");
+    gboolean allowed = FALSE;
+
+    if (identity) {
+        const gchar *id = g_variant_get_string(identity, NULL);
+        // Allow known music apps that use Electron/Chromium
+        if (g_strstr_len(id, -1, "TIDAL") != NULL ||
+            g_strstr_len(id, -1, "tidal") != NULL ||
+            g_strstr_len(id, -1, "Cider") != NULL ||      // Apple Music client
+            g_strstr_len(id, -1, "YouTube Music") != NULL)
+            allowed = TRUE;
+        g_variant_unref(identity);
+    }
+
+    g_object_unref(proxy);
+    return allowed;
 }
 
 // Load all available MPRIS players from D-Bus
@@ -111,7 +161,8 @@ static void load_available_players(AppState *state) {
     // Find all MPRIS players (excluding browsers and playerctld)
     while (g_variant_iter_loop(iter, "&s", &name)) {
         if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.") &&
-            !is_excluded_player(name)) {
+            !is_excluded_player(name) &&
+            is_allowed_chromium_player(name)) {
             g_ptr_array_add(player_arr, g_strdup(name));
         }
     }
@@ -143,7 +194,7 @@ static void load_available_players(AppState *state) {
         if (state->player_display_name) {
             gtk_label_set_text(GTK_LABEL(state->player_label), state->player_display_name);
         } else if (state->player_count > 0) {
-            gtk_label_set_text(GTK_LABEL(state->player_label), "Click to select");
+            gtk_label_set_text(GTK_LABEL(state->player_label), "Click to switch");
         } else {
             gtk_label_set_text(GTK_LABEL(state->player_label), "No players");
         }
@@ -154,9 +205,13 @@ static void load_available_players(AppState *state) {
 static void save_preferred_player(const gchar *bus_name) {
     gchar *config_dir = g_build_filename(g_get_user_config_dir(), "hyprwave", NULL);
     gchar *pref_file = g_build_filename(config_dir, "preferred_player", NULL);
+    GError *error = NULL;
 
     g_mkdir_with_parents(config_dir, 0755);
-    g_file_set_contents(pref_file, bus_name, -1, NULL);
+    if (!g_file_set_contents(pref_file, bus_name, -1, &error)) {
+        g_warning("Failed to save preferred player: %s", error->message);
+        g_error_free(error);
+    }
 
     g_free(pref_file);
     g_free(config_dir);
@@ -203,6 +258,8 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
     if (error) {
         g_printerr("Failed to connect to player: %s\n", error->message);
         g_error_free(error);
+        g_free(state->current_player);
+        state->current_player = NULL;
         return;
     }
 
@@ -221,6 +278,12 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
         NULL
     );
 
+    // Set fallback display name from bus_name (e.g., "org.mpris.MediaPlayer2.spotify" -> "spotify")
+    g_free(state->player_display_name);
+    const gchar *fallback_name = strrchr(bus_name, '.');
+    state->player_display_name = g_strdup(fallback_name ? fallback_name + 1 : "Unknown");
+
+    // Try to get better display name from Identity property
     if (player_proxy) {
         GVariant *identity = g_dbus_proxy_get_cached_property(player_proxy, "Identity");
         if (identity) {
@@ -233,7 +296,7 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
     }
 
     // Update display and save preference
-    if (state->player_label && state->player_display_name) {
+    if (state->player_label) {
         gtk_label_set_text(GTK_LABEL(state->player_label), state->player_display_name);
     }
     save_preferred_player(bus_name);
@@ -277,10 +340,10 @@ static void on_player_clicked(GtkGestureClick *gesture, gint n_press, gdouble x,
 
 static void on_window_hide_complete(GObject *revealer, GParamSpec *pspec, gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    
+
     if (!gtk_revealer_get_child_revealed(GTK_REVEALER(state->window_revealer))) {
-        gtk_window_set_default_size(GTK_WINDOW(state->window), 1, 1);
-        g_print("HyprWave hidden (animation complete)\n");
+        // Actually hide the window to make it completely invisible
+        gtk_widget_set_visible(state->window, FALSE);
     }
 }
 
@@ -291,8 +354,6 @@ static void handle_sigusr1(int sig) {
     
     if (!global_state->is_visible) {
         // HIDE: Slide out animation
-        g_print("Hiding HyprWave...\n");
-        
         // First collapse expanded section if open
         if (global_state->is_expanded) {
             global_state->is_expanded = FALSE;
@@ -304,21 +365,17 @@ static void handle_sigusr1(int sig) {
         
     } else {
         // SHOW: Slide in animation
-        g_print("Showing HyprWave...\n");
-        gtk_window_set_default_size(GTK_WINDOW(global_state->window), -1, -1);
+        // Make window visible first, then start reveal animation
+        gtk_widget_set_visible(global_state->window, TRUE);
         gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), TRUE);
     }
 }
 
 static void handle_sigusr2(int sig) {
     if (!global_state) return;
-    if (!global_state->is_visible) {
-        g_print("Cannot toggle expand: HyprWave is hidden\n");
-        return;
-    }
-    
+    if (!global_state->is_visible) return;
+
     // Toggle expand by simulating button click
-    g_print("Toggling expand state...\n");
     on_expand_clicked(NULL, global_state);
 }
 
@@ -419,38 +476,88 @@ static void update_position(AppState *state) {
     gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(state->progress_bar), fraction);
 }
 
+// Track notification retry count
+static gint notification_retry_count = 0;
+#define MAX_NOTIFICATION_RETRIES 5
+
+// Debounced notification callback - shows notification after delay
+static gboolean show_pending_notification(gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+
+    gboolean has_title = state->pending_title && strlen(state->pending_title) > 0;
+    gboolean has_artist = state->pending_artist && strlen(state->pending_artist) > 0;
+
+    // Wait for at least title and artist, retry if not ready yet
+    if (!has_title || !has_artist) {
+        notification_retry_count++;
+        if (notification_retry_count < MAX_NOTIFICATION_RETRIES) {
+            // Reschedule - keep timer ID updated
+            state->notification_timer = g_timeout_add(200, show_pending_notification, state);
+            return G_SOURCE_REMOVE;
+        }
+        g_print("Notification skipped - metadata incomplete after retries\n");
+    } else {
+        // We have complete data - show notification
+        notification_show(state->notification,
+                          state->pending_title,
+                          state->pending_artist,
+                          state->pending_art_url,
+                          "Now Playing");
+    }
+
+    // Clear pending data and reset
+    g_free(state->pending_title);
+    g_free(state->pending_artist);
+    g_free(state->pending_art_url);
+    state->pending_title = NULL;
+    state->pending_artist = NULL;
+    state->pending_art_url = NULL;
+    state->notification_timer = 0;
+    notification_retry_count = 0;
+
+    return G_SOURCE_REMOVE;
+}
+
 static void update_metadata(AppState *state) {
     if (!state->mpris_proxy) return;
-    
+
     GVariant *metadata = g_dbus_proxy_get_cached_property(state->mpris_proxy, "Metadata");
     if (!metadata) return;
-    
+
     GVariantIter iter;
     GVariant *value;
     gchar *key;
-    
-    const gchar *title = NULL;
-    const gchar *artist = NULL;
-    const gchar *art_url = NULL;
-    const gchar *track_id = NULL;
-    
+
+    // Use owned copies since g_variant_iter_loop frees data each iteration
+    gchar *title = NULL;
+    gchar *artist = NULL;
+    gchar *art_url = NULL;
+    gchar *track_id = NULL;
+
     g_variant_iter_init(&iter, metadata);
     while (g_variant_iter_loop(&iter, "{sv}", &key, &value)) {
         if (g_strcmp0(key, "xesam:title") == 0) {
-            title = g_variant_get_string(value, NULL);
+            g_free(title);
+            title = g_strdup(g_variant_get_string(value, NULL));
         }
         else if (g_strcmp0(key, "xesam:artist") == 0) {
             if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING_ARRAY)) {
                 gsize length;
                 const gchar **artists = g_variant_get_strv(value, &length);
-                if (length > 0) artist = artists[0];
+                if (length > 0) {
+                    g_free(artist);
+                    artist = g_strdup(artists[0]);
+                }
+                g_free(artists);
             }
         }
         else if (g_strcmp0(key, "mpris:artUrl") == 0) {
-            art_url = g_variant_get_string(value, NULL);
+            g_free(art_url);
+            art_url = g_strdup(g_variant_get_string(value, NULL));
         }
         else if (g_strcmp0(key, "mpris:trackid") == 0) {
-            track_id = g_variant_get_string(value, NULL);
+            g_free(track_id);
+            track_id = g_strdup(g_variant_get_string(value, NULL));
         }
     }
     
@@ -467,13 +574,49 @@ static void update_metadata(AppState *state) {
         g_free(state->last_track_id);
         state->last_track_id = g_strdup(track_id);
     }
-    g_print("DEBUG: track_changed=%d, notif_enabled=%d, now_playing=%d, notification=%p\n",
-        track_changed, state->layout->notifications_enabled, 
-        state->layout->now_playing_enabled, state->notification);
-    // Show notification if track changed and notifications enabled
-    if (track_changed && state->layout->notifications_enabled && 
+    // Handle notification with debounce
+    if (state->layout->notifications_enabled &&
         state->layout->now_playing_enabled && state->notification) {
-        notification_show(state->notification, title, artist, art_url, "Now Playing");
+
+        if (track_changed) {
+            // New track - cancel any pending notification and schedule new one
+            if (state->notification_timer > 0) {
+                g_source_remove(state->notification_timer);
+                state->notification_timer = 0;
+            }
+
+            // Reset retry count for new track
+            notification_retry_count = 0;
+
+            // Store pending notification data (make copies)
+            g_free(state->pending_title);
+            g_free(state->pending_artist);
+            g_free(state->pending_art_url);
+            state->pending_title = g_strdup(title);
+            state->pending_artist = g_strdup(artist);
+            state->pending_art_url = g_strdup(art_url);
+
+            // Pre-load notification album art NOW before temp file gets deleted
+            // (Chromium uses ephemeral temp files that disappear quickly)
+            if (state->notification->album_cover) {
+                // Clear old art first, then try to load new art
+                clear_album_art_container(state->notification->album_cover);
+                load_album_art_to_container(art_url, state->notification->album_cover, 70);
+            }
+
+            // Schedule notification after 300ms delay to ensure metadata is complete
+            state->notification_timer = g_timeout_add(300, show_pending_notification, state);
+
+        } else if (state->notification_timer > 0) {
+            // Same track but notification pending - update with latest data
+            // This handles the case where metadata arrives in multiple signals
+            g_free(state->pending_title);
+            g_free(state->pending_artist);
+            g_free(state->pending_art_url);
+            state->pending_title = g_strdup(title);
+            state->pending_artist = g_strdup(artist);
+            state->pending_art_url = g_strdup(art_url);
+        }
     }
     
     if (title && strlen(title) > 0) {
@@ -491,55 +634,8 @@ static void update_metadata(AppState *state) {
         }
     }
     
-    // Handle album art
-    if (art_url && strlen(art_url) > 0) {
-        GdkPixbuf *pixbuf = NULL;
-        
-        if (g_str_has_prefix(art_url, "file://")) {
-            gchar *file_path = g_filename_from_uri(art_url, NULL, NULL);
-            if (file_path && g_file_test(file_path, G_FILE_TEST_EXISTS)) {
-                GError *error = NULL;
-                pixbuf = gdk_pixbuf_new_from_file_at_scale(file_path, 120, 120, FALSE, &error);
-                if (error) g_error_free(error);
-            }
-            g_free(file_path);
-        } else if (g_str_has_prefix(art_url, "http://") || g_str_has_prefix(art_url, "https://")) {
-            GFile *file = g_file_new_for_uri(art_url);
-            GError *error = NULL;
-            GInputStream *stream = G_INPUT_STREAM(g_file_read(file, NULL, &error));
-            if (stream && !error) {
-                pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, 120, 120, FALSE, NULL, &error);
-                if (error) g_error_free(error);
-                g_object_unref(stream);
-            } else if (error) {
-                g_error_free(error);
-            }
-            g_object_unref(file);
-        }
-        
-        if (pixbuf) {
-            GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
-            GtkWidget *image = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
-            gtk_widget_set_size_request(image, 120, 120);
-            gtk_picture_set_can_shrink(GTK_PICTURE(image), TRUE);
-            gtk_picture_set_content_fit(GTK_PICTURE(image), GTK_CONTENT_FIT_CONTAIN);
-            gtk_widget_set_halign(image, GTK_ALIGN_CENTER);
-            gtk_widget_set_valign(image, GTK_ALIGN_CENTER);
-            gtk_widget_set_hexpand(image, FALSE);
-            gtk_widget_set_vexpand(image, FALSE);
-
-            GtkWidget *child = gtk_widget_get_first_child(state->album_cover);
-            while (child) {
-                GtkWidget *next = gtk_widget_get_next_sibling(child);
-                gtk_widget_unparent(child);
-                child = next;
-            }
-
-            gtk_box_append(GTK_BOX(state->album_cover), image);
-            g_object_unref(texture);
-            g_object_unref(pixbuf);
-        }
-    }
+    // Handle album art using shared utility
+    load_album_art_to_container(art_url, state->album_cover, 120);
     
     // Set source (player name)
     if (state->current_player) {
@@ -554,7 +650,7 @@ static void update_metadata(AppState *state) {
             NULL,
             &error
         );
-        
+
         if (player_proxy && !error) {
             GVariant *identity = g_dbus_proxy_get_cached_property(player_proxy, "Identity");
             if (identity) {
@@ -567,7 +663,13 @@ static void update_metadata(AppState *state) {
             g_error_free(error);
         }
     }
-    
+
+    // Cleanup allocated strings
+    g_free(title);
+    g_free(artist);
+    g_free(art_url);
+    g_free(track_id);
+
     g_variant_unref(metadata);
     update_position(state);
 }
@@ -696,13 +798,14 @@ static void find_active_player(AppState *state) {
     g_variant_get(result, "(as)", &iter);
 
     const gchar *name;
-    const gchar *first_player = NULL;
+    gchar *first_player = NULL;
     gchar *preferred_player = load_preferred_player();
 
     // Find MPRIS players
     while (g_variant_iter_loop(iter, "&s", &name)) {
         if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.") &&
-            !is_excluded_player(name)) {
+            !is_excluded_player(name) &&
+            is_allowed_chromium_player(name)) {
             // Check for preferred player first
             if (preferred_player && g_strcmp0(name, preferred_player) == 0) {
                 connect_to_player(state, name);
@@ -710,6 +813,7 @@ static void find_active_player(AppState *state) {
                 g_variant_unref(result);
                 g_object_unref(dbus_proxy);
                 g_free(preferred_player);
+                g_free(first_player);
                 return;
             }
             // Remember first valid player as fallback
@@ -724,6 +828,7 @@ static void find_active_player(AppState *state) {
     // Use first available player if no preferred found
     if (first_player) {
         connect_to_player(state, first_player);
+        g_free(first_player);
     }
 
     g_variant_iter_free(iter);
@@ -782,40 +887,110 @@ static void on_expand_clicked(GtkButton *button, gpointer user_data) {
 }
 
 static void load_css() {
-    GtkCssProvider *provider = gtk_css_provider_new();
-    
+    // 1. Load base styles (style.css)
     gchar *css_path = get_style_path();
-    g_print("Attempting to load CSS from: %s\n", css_path);
-    
-    gtk_css_provider_load_from_path(provider, css_path);
-    g_print("CSS loaded successfully!\n");
-    
-    free_path(css_path);
-    
-    gtk_style_context_add_provider_for_display(
-        gdk_display_get_default(),
-        GTK_STYLE_PROVIDER(provider),
-        GTK_STYLE_PROVIDER_PRIORITY_USER + 100
-    );
+    g_print("Loading base CSS from: %s\n", css_path);
+
+    GtkCssProvider *provider = gtk_css_provider_new();
+    GFile *base_file = g_file_new_for_path(css_path);
+    GError *base_error = NULL;
+    gchar *base_contents = NULL;
+    gsize base_length = 0;
+
+    if (g_file_load_contents(base_file, NULL, &base_contents, &base_length, NULL, &base_error)) {
+        gtk_css_provider_load_from_string(provider, base_contents);
+        gtk_style_context_add_provider_for_display(
+            gdk_display_get_default(),
+            GTK_STYLE_PROVIDER(provider),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+        );
+        g_print("Base CSS loaded successfully\n");
+        g_free(base_contents);
+    } else {
+        g_warning("Failed to load base CSS from '%s': %s",
+                  css_path, base_error ? base_error->message : "Unknown error");
+        if (base_error) g_error_free(base_error);
+    }
+    g_object_unref(base_file);
     g_object_unref(provider);
+    free_path(css_path);
+
+    // 2. Load theme CSS if not using default "light" theme
+    gchar *theme = get_config_theme();
+    g_print("Theme from config: %s\n", theme);
+
+    gchar *theme_path = get_theme_path(theme);
+    if (theme_path) {
+        GtkCssProvider *theme_provider = gtk_css_provider_new();
+        GFile *theme_file = g_file_new_for_path(theme_path);
+        GError *theme_error = NULL;
+        gchar *theme_contents = NULL;
+        gsize theme_length = 0;
+
+        if (g_file_load_contents(theme_file, NULL, &theme_contents, &theme_length, NULL, &theme_error)) {
+            gtk_css_provider_load_from_string(theme_provider, theme_contents);
+            gtk_style_context_add_provider_for_display(
+                gdk_display_get_default(),
+                GTK_STYLE_PROVIDER(theme_provider),
+                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1
+            );
+            g_print("Theme CSS loaded: %s\n", theme_path);
+            g_free(theme_contents);
+        } else {
+            g_warning("Failed to load theme CSS from '%s': %s",
+                      theme_path, theme_error ? theme_error->message : "Unknown error");
+            if (theme_error) g_error_free(theme_error);
+        }
+        g_object_unref(theme_file);
+        g_object_unref(theme_provider);
+        free_path(theme_path);
+    }
+    g_free(theme);
+
+    // 3. Load optional user CSS overrides with highest priority
+    gchar *user_css = g_build_filename(g_get_user_config_dir(), "hyprwave", "user.css", NULL);
+    if (g_file_test(user_css, G_FILE_TEST_EXISTS)) {
+        GtkCssProvider *user_provider = gtk_css_provider_new();
+        GFile *css_file = g_file_new_for_path(user_css);
+        GError *css_error = NULL;
+        gchar *css_contents = NULL;
+        gsize css_length = 0;
+
+        // Read and load CSS with error checking
+        if (g_file_load_contents(css_file, NULL, &css_contents, &css_length, NULL, &css_error)) {
+            gtk_css_provider_load_from_string(user_provider, css_contents);
+            gtk_style_context_add_provider_for_display(
+                gdk_display_get_default(),
+                GTK_STYLE_PROVIDER(user_provider),
+                GTK_STYLE_PROVIDER_PRIORITY_USER
+            );
+            g_print("User CSS loaded from: %s\n", user_css);
+            g_free(css_contents);
+        } else {
+            g_warning("Failed to load user CSS from '%s': %s",
+                      user_css, css_error ? css_error->message : "Unknown error");
+            if (css_error) g_error_free(css_error);
+        }
+        g_object_unref(css_file);
+        g_object_unref(user_provider);
+    }
+    g_free(user_css);
 }
 
 static void activate(GtkApplication *app, gpointer user_data) {
     AppState *state = g_new0(AppState, 1);
     state->is_playing = FALSE;
     state->is_expanded = FALSE;
-    state->is_visible = TRUE;           // ADD THIS
+    state->is_visible = TRUE;
     state->mpris_proxy = NULL;
     state->current_player = NULL;
-    state->last_track_id = NULL;        // ADD THIS
+    state->last_track_id = NULL;
     state->layout = layout_load_config();
     
-    // ADD THESE LINES:
     // Initialize notification system
     state->notification = notification_init(app);
-    g_print("DEBUG: Notification initialized: %p\n", state->notification);
     if (!state->notification) {
-        g_printerr("ERROR: Failed to initialize notification system!\n");
+        g_printerr("Failed to initialize notification system\n");
     }
     
     GtkWidget *window = gtk_application_window_new(app);
@@ -837,7 +1012,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_name(window, "hyprwave-window");
     
     // CRITICAL: Make the window background fully transparent
-    GdkRGBA transparent = {0, 0, 0, 0};
     gtk_widget_add_css_class(window, "hyprwave-window");
     
     // Create widget elements
@@ -849,6 +1023,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_valign(album_cover, GTK_ALIGN_CENTER);
     gtk_widget_set_hexpand(album_cover, FALSE);
     gtk_widget_set_vexpand(album_cover, FALSE);
+    gtk_widget_set_overflow(album_cover, GTK_OVERFLOW_HIDDEN);
     
     GtkWidget *source_label = gtk_label_new("No Source");
     state->source_label = source_label;

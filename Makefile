@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = `pkg-config --cflags gtk4 gtk4-layer-shell-0`
 LIBS = `pkg-config --libs gtk4 gtk4-layer-shell-0`
 TARGET = hyprwave
-SRC = main.c layout.c paths.c notification.c
+SRC = main.c layout.c paths.c notification.c art.c
 
 # Installation paths
 PREFIX ?= $(HOME)/.local
@@ -32,11 +32,14 @@ install: $(TARGET)
 	install -m644 icons/arrow-down.svg $(DATADIR)/icons/
 	install -m644 icons/arrow-left.svg $(DATADIR)/icons/
 	install -m644 icons/arrow-right.svg $(DATADIR)/icons/
+	@mkdir -p $(DATADIR)/themes
+	install -m644 themes/dark.css $(DATADIR)/themes/
 	@echo "Installation complete!"
 	@echo "Files installed to: $(DATADIR)"
 	@echo "Binary installed to: $(BINDIR)/$(TARGET)"
 	@echo ""
 	@echo "Run 'hyprwave' to start"
+	@echo "To use dark theme: set 'theme = dark' in ~/.config/hyprwave/config.conf"
 
 uninstall:
 	@echo "Uninstalling HyprWave..."

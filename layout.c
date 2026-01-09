@@ -17,7 +17,7 @@ LayoutConfig* layout_load_config(void) {
     
     // Check if config file exists, create default if not
     if (!g_file_test(config_file, G_FILE_TEST_EXISTS)) {
-        gchar *default_config = 
+        gchar *default_config =
             "# HyprWave Configuration File\n"
             "\n"
             "[General]\n"
@@ -27,6 +27,9 @@ LayoutConfig* layout_load_config(void) {
             "\n"
             "# Margin from the screen edge (in pixels)\n"
             "margin = 10\n"
+            "\n"
+            "# Theme: light or dark\n"
+            "theme = light\n"
             "\n"
             "[Keybinds]\n"
             "# Toggle HyprWave visibility (hide/show entire window)\n"
@@ -56,6 +59,7 @@ LayoutConfig* layout_load_config(void) {
     config->toggle_expand_bind = g_strdup("Super+M");
     config->notifications_enabled = TRUE;
     config->now_playing_enabled = TRUE;
+    config->theme = g_strdup("light");
     
     if (g_key_file_load_from_file(keyfile, config_file, G_KEY_FILE_NONE, NULL)) {
         // Load General section
@@ -76,7 +80,14 @@ LayoutConfig* layout_load_config(void) {
         
         config->margin = g_key_file_get_integer(keyfile, "General", "margin", NULL);
         if (config->margin == 0) config->margin = 10;
-        
+
+        // Load theme
+        gchar *theme_str = g_key_file_get_string(keyfile, "General", "theme", NULL);
+        if (theme_str) {
+            g_free(config->theme);
+            config->theme = theme_str;
+        }
+
         // Load Keybinds section (optional)
         gchar *vis_bind = g_key_file_get_string(keyfile, "Keybinds", "toggle_visibility", NULL);
         if (vis_bind) {
@@ -114,12 +125,13 @@ LayoutConfig* layout_load_config(void) {
     g_free(config_file);
     g_free(config_dir);
     
-    g_print("Layout: %s edge (%s)\n",
+    g_print("Layout: %s edge (%s), theme: %s\n",
             config->edge == EDGE_RIGHT ? "right" :
             config->edge == EDGE_LEFT ? "left" :
             config->edge == EDGE_TOP ? "top" : "bottom",
-            config->is_vertical ? "vertical" : "horizontal");
-    
+            config->is_vertical ? "vertical" : "horizontal",
+            config->theme);
+
     return config;
 }
 
@@ -127,6 +139,7 @@ void layout_free_config(LayoutConfig *config) {
     if (config) {
         g_free(config->toggle_visibility_bind);
         g_free(config->toggle_expand_bind);
+        g_free(config->theme);
         g_free(config);
     }
 }
