@@ -9,6 +9,8 @@
 #include "notification.h"
 #include "art.h"
 
+#define HYPRWAVE_VERSION "0.5.0"
+
 typedef struct {
     GtkWidget *window;
     GtkWidget *window_revealer;
@@ -1222,7 +1224,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // Update position every second
     state->update_timer = g_timeout_add_seconds(1, update_position_tick, state);
 
-    g_print("HyprWave started!\n");
+    g_print("HyprWave Hi-Fi Edition v%s started!\n", HYPRWAVE_VERSION);
 }
 
 int main(int argc, char **argv) {
