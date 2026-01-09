@@ -81,9 +81,8 @@
 
 /* Notification container - stronger background for readability */
 .notification-container {
-    background: linear-gradient(145deg, rgba(25, 25, 30, 0.95), rgba(18, 18, 22, 0.95));
+    background: rgba(22, 22, 26, 0.98);
     border: 1px solid rgba(80, 80, 95, 0.5);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
 /* Notification text shadows for readability */

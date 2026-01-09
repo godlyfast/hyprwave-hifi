@@ -1,4 +1,5 @@
 #include "notification.h"
+#include "art.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
 #define SLIDE_DISTANCE 400  // Increased from 350 to ensure full off-screen
@@ -70,7 +71,8 @@ NotificationState* notification_init(GtkApplication *app) {
     GtkWidget *window = gtk_application_window_new(app);
     state->window = window;
     gtk_window_set_title(GTK_WINDOW(window), "HyprWave Notification");
-    
+    gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
+
     // Layer Shell Setup - Top Right Corner
     gtk_layer_init_for_window(GTK_WINDOW(window));
     gtk_layer_set_layer(GTK_WINDOW(window), GTK_LAYER_SHELL_LAYER_OVERLAY);
@@ -89,6 +91,7 @@ NotificationState* notification_init(GtkApplication *app) {
     // Create main container
     GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_widget_add_css_class(main_box, "notification-container");
+    gtk_widget_set_overflow(main_box, GTK_OVERFLOW_HIDDEN);
     
     // Header label
     GtkWidget *header = gtk_label_new("Now Playing");
@@ -104,6 +107,7 @@ NotificationState* notification_init(GtkApplication *app) {
     state->album_cover = album_cover;
     gtk_widget_add_css_class(album_cover, "notification-album");
     gtk_widget_set_size_request(album_cover, 70, 70);
+    gtk_widget_set_overflow(album_cover, GTK_OVERFLOW_HIDDEN);
     
     // Info panel
     GtkWidget *info_panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
@@ -146,64 +150,6 @@ NotificationState* notification_init(GtkApplication *app) {
     return state;
 }
 
-// Helper function to clear album art
-static void clear_album_art(NotificationState *state) {
-    GtkWidget *child = gtk_widget_get_first_child(state->album_cover);
-    while (child) {
-        GtkWidget *next = gtk_widget_get_next_sibling(child);
-        gtk_widget_unparent(child);
-        child = next;
-    }
-}
-
-// Helper function to load and set album art
-static void load_album_art(NotificationState *state, const gchar *art_url) {
-    if (!art_url || strlen(art_url) == 0) return;
-
-    GdkPixbuf *pixbuf = NULL;
-
-    if (g_str_has_prefix(art_url, "file://")) {
-        gchar *file_path = g_filename_from_uri(art_url, NULL, NULL);
-        if (file_path && g_file_test(file_path, G_FILE_TEST_EXISTS)) {
-            GError *error = NULL;
-            pixbuf = gdk_pixbuf_new_from_file_at_scale(file_path, 70, 70, FALSE, &error);
-            if (error) {
-                g_error_free(error);
-                pixbuf = NULL;
-            }
-        }
-        g_free(file_path);
-    } else if (g_str_has_prefix(art_url, "http://") || g_str_has_prefix(art_url, "https://")) {
-        GFile *file = g_file_new_for_uri(art_url);
-        GError *error = NULL;
-        GInputStream *stream = G_INPUT_STREAM(g_file_read(file, NULL, &error));
-        if (stream && !error) {
-            pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, 70, 70, FALSE, NULL, &error);
-            if (error) {
-                g_error_free(error);
-                pixbuf = NULL;
-            }
-            g_object_unref(stream);
-        } else if (error) {
-            g_error_free(error);
-        }
-        g_object_unref(file);
-    }
-
-    if (pixbuf) {
-        GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
-        GtkWidget *image = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
-        gtk_widget_set_size_request(image, 70, 70);
-
-        // Clear old album art first
-        clear_album_art(state);
-
-        gtk_box_append(GTK_BOX(state->album_cover), image);
-        g_object_unref(texture);
-        g_object_unref(pixbuf);
-    }
-}
-
 void notification_show(NotificationState *state,
                        const gchar *title,
                        const gchar *artist,
@@ -221,9 +167,6 @@ void notification_show(NotificationState *state,
         state->animation_timer = 0;
     }
 
-    // Always clear old album art first to prevent showing stale content
-    clear_album_art(state);
-
     // Always update text content immediately
     const gchar *display_title = (title && strlen(title) > 0) ? title : "Unknown Track";
     const gchar *display_artist = (artist && strlen(artist) > 0) ? artist : "Unknown Artist";
@@ -234,8 +177,12 @@ void notification_show(NotificationState *state,
     gtk_label_set_text(GTK_LABEL(state->artist_label), artist_text);
     g_free(artist_text);
 
-    // Load new album art
-    load_album_art(state, art_url);
+    // Only load album art if container is empty (art may be pre-loaded)
+    // This handles ephemeral temp files from Chromium that get deleted quickly
+    GtkWidget *existing_art = gtk_widget_get_first_child(state->album_cover);
+    if (!existing_art) {
+        load_album_art_to_container(art_url, state->album_cover, 70);
+    }
 
     // Check if notification is currently showing or partially visible
     if (state->is_showing || state->current_offset < SLIDE_DISTANCE) {

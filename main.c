@@ -7,6 +7,7 @@
 #include "layout.h"
 #include "paths.h"
 #include "notification.h"
+#include "art.h"
 
 typedef struct {
     GtkWidget *window;
@@ -294,7 +295,8 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
     }
     save_preferred_player(bus_name);
 
-    g_print("Switched to player: %s (%s)\n", state->player_display_name, bus_name);
+    const gchar *display_name = state->player_display_name ? state->player_display_name : "Unknown player";
+    g_print("Switched to player: %s (%s)\n", display_name, bus_name);
 
     // Update metadata and playback status
     update_metadata(state);
@@ -589,6 +591,14 @@ static void update_metadata(AppState *state) {
             state->pending_artist = g_strdup(artist);
             state->pending_art_url = g_strdup(art_url);
 
+            // Pre-load notification album art NOW before temp file gets deleted
+            // (Chromium uses ephemeral temp files that disappear quickly)
+            if (state->notification && state->notification->album_cover) {
+                // Clear old art first, then try to load new art
+                clear_album_art_container(state->notification->album_cover);
+                load_album_art_to_container(art_url, state->notification->album_cover, 70);
+            }
+
             // Schedule notification after 300ms delay to ensure metadata is complete
             state->notification_timer = g_timeout_add(300, show_pending_notification, state);
 
@@ -619,55 +629,8 @@ static void update_metadata(AppState *state) {
         }
     }
     
-    // Handle album art
-    if (art_url && strlen(art_url) > 0) {
-        GdkPixbuf *pixbuf = NULL;
-        
-        if (g_str_has_prefix(art_url, "file://")) {
-            gchar *file_path = g_filename_from_uri(art_url, NULL, NULL);
-            if (file_path && g_file_test(file_path, G_FILE_TEST_EXISTS)) {
-                GError *error = NULL;
-                pixbuf = gdk_pixbuf_new_from_file_at_scale(file_path, 120, 120, FALSE, &error);
-                if (error) g_error_free(error);
-            }
-            g_free(file_path);
-        } else if (g_str_has_prefix(art_url, "http://") || g_str_has_prefix(art_url, "https://")) {
-            GFile *file = g_file_new_for_uri(art_url);
-            GError *error = NULL;
-            GInputStream *stream = G_INPUT_STREAM(g_file_read(file, NULL, &error));
-            if (stream && !error) {
-                pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, 120, 120, FALSE, NULL, &error);
-                if (error) g_error_free(error);
-                g_object_unref(stream);
-            } else if (error) {
-                g_error_free(error);
-            }
-            g_object_unref(file);
-        }
-        
-        if (pixbuf) {
-            GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
-            GtkWidget *image = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
-            gtk_widget_set_size_request(image, 120, 120);
-            gtk_picture_set_can_shrink(GTK_PICTURE(image), TRUE);
-            gtk_picture_set_content_fit(GTK_PICTURE(image), GTK_CONTENT_FIT_CONTAIN);
-            gtk_widget_set_halign(image, GTK_ALIGN_CENTER);
-            gtk_widget_set_valign(image, GTK_ALIGN_CENTER);
-            gtk_widget_set_hexpand(image, FALSE);
-            gtk_widget_set_vexpand(image, FALSE);
-
-            GtkWidget *child = gtk_widget_get_first_child(state->album_cover);
-            while (child) {
-                GtkWidget *next = gtk_widget_get_next_sibling(child);
-                gtk_widget_unparent(child);
-                child = next;
-            }
-
-            gtk_box_append(GTK_BOX(state->album_cover), image);
-            g_object_unref(texture);
-            g_object_unref(pixbuf);
-        }
-    }
+    // Handle album art using shared utility
+    load_album_art_to_container(art_url, state->album_cover, 120);
     
     // Set source (player name)
     if (state->current_player) {
@@ -956,14 +919,28 @@ static void load_css() {
     gchar *user_css = g_build_filename(g_get_user_config_dir(), "hyprwave", "user.css", NULL);
     if (g_file_test(user_css, G_FILE_TEST_EXISTS)) {
         GtkCssProvider *user_provider = gtk_css_provider_new();
-        gtk_css_provider_load_from_path(user_provider, user_css);
-        gtk_style_context_add_provider_for_display(
-            gdk_display_get_default(),
-            GTK_STYLE_PROVIDER(user_provider),
-            GTK_STYLE_PROVIDER_PRIORITY_USER
-        );
+        GFile *css_file = g_file_new_for_path(user_css);
+        GError *css_error = NULL;
+        gchar *css_contents = NULL;
+        gsize css_length = 0;
+
+        // Read and load CSS with error checking
+        if (g_file_load_contents(css_file, NULL, &css_contents, &css_length, NULL, &css_error)) {
+            gtk_css_provider_load_from_string(user_provider, css_contents);
+            gtk_style_context_add_provider_for_display(
+                gdk_display_get_default(),
+                GTK_STYLE_PROVIDER(user_provider),
+                GTK_STYLE_PROVIDER_PRIORITY_USER
+            );
+            g_print("User CSS loaded from: %s\n", user_css);
+            g_free(css_contents);
+        } else {
+            g_warning("Failed to load user CSS from '%s': %s",
+                      user_css, css_error ? css_error->message : "Unknown error");
+            if (css_error) g_error_free(css_error);
+        }
+        g_object_unref(css_file);
         g_object_unref(user_provider);
-        g_print("User CSS loaded from: %s\n", user_css);
     }
     g_free(user_css);
 }
@@ -1014,6 +991,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_valign(album_cover, GTK_ALIGN_CENTER);
     gtk_widget_set_hexpand(album_cover, FALSE);
     gtk_widget_set_vexpand(album_cover, FALSE);
+    gtk_widget_set_overflow(album_cover, GTK_OVERFLOW_HIDDEN);
     
     GtkWidget *source_label = gtk_label_new("No Source");
     state->source_label = source_label;
