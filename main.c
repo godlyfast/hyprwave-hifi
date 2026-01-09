@@ -919,14 +919,11 @@ static void on_expand_clicked(GtkButton *button, gpointer user_data) {
 }
 
 static void load_css() {
+    // 1. Load base styles (style.css)
     GtkCssProvider *provider = gtk_css_provider_new();
-
     gchar *css_path = get_style_path();
-    g_print("Attempting to load CSS from: %s\n", css_path);
-
+    g_print("Loading base CSS from: %s\n", css_path);
     gtk_css_provider_load_from_path(provider, css_path);
-    g_print("CSS loaded successfully!\n");
-
     free_path(css_path);
 
     gtk_style_context_add_provider_for_display(
@@ -936,7 +933,26 @@ static void load_css() {
     );
     g_object_unref(provider);
 
-    // Load optional user CSS overrides with higher priority
+    // 2. Load theme CSS if not using default "light" theme
+    gchar *theme = get_config_theme();
+    g_print("Theme from config: %s\n", theme);
+
+    gchar *theme_path = get_theme_path(theme);
+    if (theme_path) {
+        GtkCssProvider *theme_provider = gtk_css_provider_new();
+        gtk_css_provider_load_from_path(theme_provider, theme_path);
+        gtk_style_context_add_provider_for_display(
+            gdk_display_get_default(),
+            GTK_STYLE_PROVIDER(theme_provider),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1
+        );
+        g_object_unref(theme_provider);
+        g_print("Theme CSS loaded: %s\n", theme_path);
+        free_path(theme_path);
+    }
+    g_free(theme);
+
+    // 3. Load optional user CSS overrides with highest priority
     gchar *user_css = g_build_filename(g_get_user_config_dir(), "hyprwave", "user.css", NULL);
     if (g_file_test(user_css, G_FILE_TEST_EXISTS)) {
         GtkCssProvider *user_provider = gtk_css_provider_new();

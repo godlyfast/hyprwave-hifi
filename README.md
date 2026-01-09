@@ -34,7 +34,7 @@ A sleek, modern music control overlay for Wayland compositors (Hyprland, Niri, S
 
 ## ✨ Features
 
-- **Elegant Dark Design** - Modern dark glass UI with smooth animations
+- **Elegant Design** - Glassmorphic UI with smooth animations (dark theme available)
 - **MPRIS Integration** - Works with Spotify, VLC, and any MPRIS-compatible player
 - **Album Art Display** - Fetches and displays album artwork
 - **Live Progress Tracking** - Real-time progress bar with countdown timer
@@ -149,6 +149,9 @@ edge = right
 # Margin from the screen edge (in pixels)
 margin = 10
 
+# Theme: light or dark
+theme = light
+
 [Keybinds]
 # Keybind labels (for display in setup message)
 toggle_visibility = Super+Shift+M
@@ -168,6 +171,10 @@ now_playing = true
 - **`edge = top`** - Horizontal layout on top edge
 - **`edge = bottom`** - Horizontal layout on bottom edge
 
+**Theme Options:**
+- **`theme = light`** - Light frosted glass theme (default)
+- **`theme = dark`** - Dark glass theme with light text
+
 **Notification Options:**
 - **`enabled = true`** - Master switch for all notifications
 - **`now_playing = true`** - Show "Now Playing" notifications when tracks change
@@ -176,39 +183,32 @@ now_playing = true
 
 Create `~/.config/hyprwave/user.css` to customize the appearance without modifying the default theme. User CSS loads with higher priority and overrides the default styles.
 
-**Example dark theme:**
-
-```css
-/* Force transparency */
-window, .background {
-    background-color: transparent;
-    background-image: none;
-}
-
-/* Dark containers */
-.control-container, .expanded-section {
-    background: linear-gradient(145deg, rgba(30, 30, 35, 0.9), rgba(20, 20, 25, 0.9));
-    border: 1px solid rgba(60, 60, 70, 0.5);
-}
-
-/* Dark buttons */
-.control-button {
-    background: linear-gradient(145deg, rgba(50, 50, 58, 0.95), rgba(40, 40, 48, 0.95));
-}
-
-/* Light text */
-.track-title { color: rgba(240, 240, 245, 0.95); }
-.artist-label { color: rgba(180, 180, 190, 0.85); }
-```
-
 **Available CSS classes:**
 - `.control-container` - Main button bar
 - `.expanded-section` - Album details panel
+- `.notification-container` - Now playing popup
 - `.control-button` - Media control buttons
 - `.album-cover` - Album art container
 - `.track-title`, `.artist-label` - Text labels
 - `.player-label` - Clickable player selector
 - `.track-progress` - Progress bar
+- `.notification-song`, `.notification-artist` - Notification text
+
+### Dark Theme
+
+A dark theme is included. To enable it, set `theme = dark` in your config file:
+
+```conf
+[General]
+theme = dark
+```
+
+Then restart HyprWave. The dark theme features dark glass backgrounds with light text for better visibility on dark desktops.
+
+**Alternative:** For full customization, you can copy the dark theme to user.css and modify it:
+```bash
+cp ~/.local/share/hyprwave/themes/dark.css ~/.config/hyprwave/user.css
+```
 
 How notifications will appear on your setup-
 
@@ -338,7 +338,7 @@ Config: `~/.config/hyprwave/config.conf`
 ## 🗺️ Roadmap
 
 ### v0.4.1 (Current) ✨ NEW
-- [x] Dark theme as default (better visibility and modern look)
+- [x] Dark theme available as user CSS option
 - [x] Improved notification reliability with debounced metadata collection
 - [x] Fixed window hiding (completely invisible when hidden)
 - [x] Fixed memory bug causing incorrect track info in notifications
