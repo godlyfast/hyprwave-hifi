@@ -3,9 +3,17 @@
 A sleek, modern music control bar for Wayland compositors (Hyprland, Niri, Sway, etc.) with MPRIS integration.
 
 
-Updates till now:  - Multi-Anchor support, Notifications, Music Controls, CSS Styling (control bar, expanded section and notifications), and launching it as an application in latest update.
+Updates till now:  - Multi-Anchor support, Notifications, Music Controls, CSS Styling (control bar, expanded section and notifications), and launching it as an application, huge UI bug fixing, ability to seek to different song part via click or drag and click in the latest update.
+
+Thanks to godlyfast for the bug fixes in the animation and album art resiszing bugs for left and right anchored hyprwaves respectively. Do check out his fork for more advanced features for hyprwave.
 
 Built and primarily tested on Niri, for all wayland compositors that support GTK4 and GTK4-layer-shell.
+
+Also, Massive update- hyprwave is now on AUR. 
+Simply install it with-
+
+```yay -S hyprwave```
+It will not give you the bleeding new updates, but the latest releases.
 
 #### 📸 Screenshots
 
@@ -270,15 +278,9 @@ Config: `~/.config/hyprwave/config.conf`
 
 ## 🗺️ Roadmap
 
-### v0.4.0 (Current) ✨ NEW
-- [x] Now Playing notifications with smooth slide animations
-- [x] Configurable notification settings
-- [x] Album art in notifications
-
-### v0.5.0 (Planned)
-- [ ] Multiple player switching
-- [ ] Volume control integration
-- [ ] Customizable notification duration
+### v0.5.0 (Current and NEW!)
+- [ ] Seek control integration
+- [ ] Bug and Animation fixes
 
 ### v1.0.0 (Goals)
 - [ ] Theming system with pre-built themes
