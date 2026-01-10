@@ -1,4 +1,18 @@
-<?xml version="1.0" encoding="utf-8"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
-<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M7 10L12 15L17 10" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN"
+ "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">
+<svg version="1.0" xmlns="http://www.w3.org/2000/svg"
+ width="1280.000000pt" height="1280.000000pt" viewBox="0 0 1280.000000 1280.000000"
+ preserveAspectRatio="xMidYMid meet">
+<metadata>
+Created by potrace 1.16, written by Peter Selinger 2001-2019
+</metadata>
+<g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)"
+fill="#000000" stroke="none">
+<path d="M2550 8524 c-198 -42 -359 -200 -405 -396 -30 -126 -13 -262 46 -381
+28 -56 227 -258 1951 -1983 1361 -1362 1936 -1931 1975 -1954 161 -98 363
+-105 536 -19 56 28 256 225 1994 1962 1736 1736 1934 1938 1962 1994 162 325
+-16 705 -364 778 -130 27 -226 15 -355 -47 l-85 -40 -1702 -1701 -1703 -1702
+-1702 1701 c-1604 1602 -1707 1703 -1775 1738 -122 62 -242 79 -373 50z"/>
+</g>
 </svg>
