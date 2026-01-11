@@ -1,3 +1,6 @@
+![GitHub stars](https://img.shields.io/github/stars/shantanubaddar/hyprwave?style=social)
+![AUR version](https://img.shields.io/aur/version/hyprwave)
+![GitHub Downloads](https://img.shields.io/github/downloads/shantanubaddar/hyprwave/total)
 # 🌊 HyprWave - v0.5 (latest release)
 
 A sleek, modern music control bar for Wayland compositors (Hyprland, Niri, Sway, etc.) with MPRIS integration.
@@ -13,6 +16,9 @@ Also, Massive update- hyprwave is now on AUR.
 Simply install it with-
 
 ```yay -S hyprwave```
+
+
+
 It will not give you the bleeding new updates, but the latest releases.
 
 #### 📸 Screenshots
