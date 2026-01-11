@@ -1,6 +1,8 @@
 ![GitHub stars](https://img.shields.io/github/stars/shantanubaddar/hyprwave?style=social)
 ![AUR version](https://img.shields.io/aur/version/hyprwave)
 ![GitHub Downloads](https://img.shields.io/github/downloads/shantanubaddar/hyprwave/total)
+
+
 # 🌊 HyprWave - v0.5 (latest release)
 
 A sleek, modern music control bar for Wayland compositors (Hyprland, Niri, Sway, etc.) with MPRIS integration.
@@ -15,7 +17,9 @@ Built and primarily tested on Niri, for all wayland compositors that support GTK
 Also, Massive update- hyprwave is now on AUR. 
 Simply install it with-
 
-```yay -S hyprwave```
+``` bash
+yay -S hyprwave
+```
 
 
 
@@ -264,7 +268,7 @@ If that doesn't work, it most probably is a broken gtk4 or gtk4-layer-shell pack
 
 HyprWave requires the music player to provide album art URLs via MPRIS. Desktop apps work better than web browsers for this.
 
-## 🛠️ Technical Details
+## Technical Details
 
 - **Language:** C
 - **GUI Framework:** GTK4
@@ -282,7 +286,7 @@ Resources are searched in this order:
 
 Config: `~/.config/hyprwave/config.conf`
 
-## 🗺️ Roadmap
+## Roadmap
 
 ### v0.5.0 (Current and NEW!)
 - [ ] Seek control integration
@@ -293,7 +297,7 @@ Config: `~/.config/hyprwave/config.conf`
 - [ ] Custom dimensions and colors via config
 - [ ] Plugin system for extensibility
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions welcome! Feel free to:
 - Report bugs via [GitHub Issues](https://github.com/shantanubaddar/hyprwave/issues)
@@ -301,11 +305,11 @@ Contributions welcome! Feel free to:
 - Create pull requests
 - Share your custom themes/icons
 
-## 📝 License
+## License
 
 Open source. Free to use, modify, and distribute.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Built with [GTK4](https://gtk.org/)
 - Uses [gtk4-layer-shell](https://github.com/wmww/gtk-layer-shell)
@@ -313,3 +317,6 @@ Open source. Free to use, modify, and distribute.
 - MPRIS specification by [freedesktop.org](https://www.freedesktop.org/)hyprwave/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/shantanubaddar/hyprwave/discussions)
 
+##Stargazers!
+
+![Star History](https://api.star-history.com/svg?repos=shantanubaddar/hyprwave&type=Date&theme=dark)
