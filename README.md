@@ -25,15 +25,20 @@ Built with GTK4 and gtk4-layer-shell for Hyprland, Niri, Sway, and other Wayland
 
 ## Screenshots
 
-### Right Edge (Default)
-<img width="1331" height="768" alt="image" src="https://github.com/user-attachments/assets/f5e7681d-942e-46f0-84f4-e789dca326cd" />
-<img width="1331" height="768" alt="image" src="https://github.com/user-attachments/assets/e32bda28-491a-419c-890b-3fad5975cc98" />
+### Dark Theme
+| Collapsed | Expanded |
+|-----------|----------|
+| ![Dark Collapsed](screenshots/dark-collapsed.png) | ![Dark Expanded](screenshots/dark-expanded.png) |
 
-### Top Edge
-<img width="1331" height="768" alt="image" src="https://github.com/user-attachments/assets/b1206d4f-a454-4666-bc41-8a34f0619a74" />
+### Light Theme
+| Collapsed | Expanded |
+|-----------|----------|
+| ![Light Collapsed](screenshots/light-collapsed.png) | ![Light Expanded](screenshots/light-expanded.png) |
 
 ### Notifications
-https://github.com/user-attachments/assets/7328c91b-c9fa-43ac-a8fd-8c63c9b676d3
+| Dark | Light |
+|------|-------|
+| ![Notification Dark](screenshots/notification-dark.png) | ![Notification Light](screenshots/notification-light.png) |
 
 ## Supported Players
 
