@@ -2,15 +2,17 @@
 
 A sleek, modern music control bar for Wayland compositors, **focused on hi-res playback services** like Roon, Tidal, Qobuz, and HQPlayer.
 
-> **Fork Notice:** This is an independent fork of [shantanubaddar/hyprwave](https://github.com/shantanubaddar/hyprwave). The original project focuses on being a simple, sleek music controller. This fork extends it with features tailored for audiophile setups and multi-zone streaming.
+> **Fork Notice:** This is an enhanced fork of [shantanubaddar/hyprwave](https://github.com/shantanubaddar/hyprwave). The original project focuses on being a simple, sleek music controller. This fork extends it with features tailored for audiophile setups and multi-zone streaming.
 
 Built with GTK4 and gtk4-layer-shell for Hyprland, Niri, Sway, and other Wayland compositors.
 
 ## Features
 
+- **Interactive Seek Bar** - Click or drag to seek within tracks (MPRIS CanSeek support)
 - **Multi-Player Switching** - Click to cycle through MPRIS players (Roon zones, Tidal, Qobuz, etc.)
 - **Player Preference Persistence** - Remembers your preferred player across sessions
 - **Now Playing Notifications** - Elegant slide-in notifications for track changes
+- **Play Button Animation** - Subtle glow animation when playing
 - **Dark Theme** - Config-based theme selection (light/dark)
 - **Album Art Display** - Fetches artwork from file:// and http:// URLs
 - **Live Progress Tracking** - Real-time progress bar with countdown
@@ -48,12 +50,19 @@ https://github.com/user-attachments/assets/7328c91b-c9fa-43ac-a8fd-8c63c9b676d3
 
 ## Installation
 
-### Dependencies
+### Arch Linux (AUR)
 
 ```bash
-# Arch Linux / Manjaro
-sudo pacman -S gtk4 gtk4-layer-shell
+# Stable release
+yay -S hyprwave-hifi
 
+# Latest git
+yay -S hyprwave-hifi-git
+```
+
+### Dependencies (other distros)
+
+```bash
 # Ubuntu / Debian
 sudo apt install libgtk-4-dev gtk4-layer-shell
 
@@ -64,17 +73,18 @@ sudo dnf install gtk4-devel gtk4-layer-shell-devel
 ### Building from Source
 
 ```bash
-git clone https://github.com/godlyfast/hyprwave.git
-cd hyprwave
+git clone https://github.com/godlyfast/hyprwave-hifi.git
+cd hyprwave-hifi
 make
-make install
+sudo make install PREFIX=/usr
 ```
 
-This installs:
-- Binary to `~/.local/bin/hyprwave`
-- Resources to `~/.local/share/hyprwave/`
-- Toggle script `hyprwave-toggle` for keybinds
-- Config at `~/.config/hyprwave/config.conf`
+System install locations:
+- Binary: `/usr/bin/hyprwave`
+- Resources: `/usr/share/hyprwave/`
+- Toggle script: `/usr/bin/hyprwave-toggle`
+
+User config at `~/.config/hyprwave/config.conf`
 
 ## Roon Setup
 
@@ -175,9 +185,11 @@ Some players (especially Chromium-based) use ephemeral temp files for album art.
 ## Roadmap
 
 ### Current Features
+- [x] Interactive seek bar with click/drag support
 - [x] Multi-player switching with preference persistence
 - [x] Dark theme with config-based selection
 - [x] Now Playing notifications
+- [x] Play button animation (breathing glow)
 - [x] Roon multi-zone support
 
 ### Planned
@@ -198,8 +210,8 @@ Some players (especially Chromium-based) use ephemeral temp files for album art.
 
 Contributions welcome! This fork focuses on hi-res playback features.
 
-- [Issues](https://github.com/godlyfast/hyprwave/issues)
-- [Pull Requests](https://github.com/godlyfast/hyprwave/pulls)
+- [Issues](https://github.com/godlyfast/hyprwave-hifi/issues)
+- [Pull Requests](https://github.com/godlyfast/hyprwave-hifi/pulls)
 
 ## Acknowledgments
 
