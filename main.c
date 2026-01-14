@@ -10,7 +10,7 @@
 #include "art.h"
 #include "volume.h"
 
-#define HYPRWAVE_VERSION "0.5.3"
+#define HYPRWAVE_VERSION "0.5.4"
 
 typedef struct {
     GtkWidget *window;
