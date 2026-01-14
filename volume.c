@@ -240,17 +240,43 @@ void volume_set(VolumeState *state, gdouble volume) {
 
 gdouble volume_get_current(VolumeState *state) {
     if (!state->mpris_proxy) return 0.5;  // Default to 50%
-    
+
     GVariant *volume_var = g_dbus_proxy_get_cached_property(
         state->mpris_proxy, "Volume");
-    
+
     if (volume_var) {
         gdouble volume = g_variant_get_double(volume_var);
         g_variant_unref(volume_var);
         return volume;
     }
-    
+
     return 0.5;  // Default fallback
+}
+
+gboolean volume_is_supported(VolumeState *state) {
+    if (!state || !state->mpris_proxy) return FALSE;
+
+    // Check player name - some players don't support MPRIS volume control
+    const gchar *name = g_dbus_proxy_get_name(state->mpris_proxy);
+    if (name) {
+        // Chromium-based players expose Volume but don't respond to changes
+        if (g_strstr_len(name, -1, "chromium") != NULL) return FALSE;
+        // Roon MPRIS bridge doesn't support volume control
+        if (g_strstr_len(name, -1, "roon") != NULL) return FALSE;
+    }
+
+    // Check if Volume property exists and has a valid value
+    GVariant *volume_var = g_dbus_proxy_get_cached_property(
+        state->mpris_proxy, "Volume");
+
+    if (volume_var) {
+        gdouble volume = g_variant_get_double(volume_var);
+        g_variant_unref(volume_var);
+        // Volume=0 often indicates no volume control
+        return volume > 0.0;
+    }
+
+    return FALSE;
 }
 
 void volume_cleanup(VolumeState *state) {

@@ -33,6 +33,9 @@ void volume_set(VolumeState *state, gdouble volume);
 // Get current volume from MPRIS
 gdouble volume_get_current(VolumeState *state);
 
+// Check if current player supports volume control
+gboolean volume_is_supported(VolumeState *state);
+
 // Update volume icon based on percentage
 void volume_update_icon(VolumeState *state, gint percentage);
 

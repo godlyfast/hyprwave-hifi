@@ -1,8 +1,8 @@
 CC = gcc
 CFLAGS = `pkg-config --cflags gtk4 gtk4-layer-shell-0`
-LIBS = `pkg-config --libs gtk4 gtk4-layer-shell-0`
+LIBS = `pkg-config --libs gtk4 gtk4-layer-shell-0` -lm
 TARGET = hyprwave
-SRC = main.c layout.c paths.c notification.c art.c
+SRC = main.c layout.c paths.c notification.c art.c volume.c
 
 # Installation paths
 PREFIX ?= $(HOME)/.local
@@ -32,6 +32,10 @@ install: $(TARGET)
 	install -m644 icons/arrow-down.svg $(DATADIR)/icons/
 	install -m644 icons/arrow-left.svg $(DATADIR)/icons/
 	install -m644 icons/arrow-right.svg $(DATADIR)/icons/
+	install -m644 icons/volume-high.svg $(DATADIR)/icons/
+	install -m644 icons/volume-medium.svg $(DATADIR)/icons/
+	install -m644 icons/volume-low.svg $(DATADIR)/icons/
+	install -m644 icons/volume-mute.svg $(DATADIR)/icons/
 	@mkdir -p $(DATADIR)/themes
 	install -m644 themes/dark.css $(DATADIR)/themes/
 	@echo "Installation complete!"

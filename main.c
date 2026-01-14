@@ -8,6 +8,7 @@
 #include "paths.h"
 #include "notification.h"
 #include "art.h"
+#include "volume.h"
 
 #define HYPRWAVE_VERSION "0.5.3"
 
@@ -54,6 +55,8 @@ typedef struct {
     gulong seek_handler_id;
     // Suppress notification during player switch
     gboolean suppress_notification;
+    // Volume control
+    VolumeState *volume;
 } AppState;
 
 static void update_position(AppState *state);
@@ -344,6 +347,11 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
     update_metadata(state);
     update_playback_status(state);
     state->suppress_notification = FALSE;
+
+    // Update volume control with new player's proxy
+    if (state->volume) {
+        state->volume->mpris_proxy = state->mpris_proxy;
+    }
 }
 
 static void cycle_player(AppState *state, gboolean forward) {
@@ -1148,16 +1156,40 @@ static void on_revealer_transition_done(GObject *revealer, GParamSpec *pspec, gp
     }
 }
 
+// Double-click on album cover toggles volume control
+static void on_album_cover_clicked(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+
+    // Only respond to double-click
+    if (n_press != 2) return;
+
+    if (!state->volume) return;
+
+    // Don't show volume control if player doesn't support it
+    if (!volume_is_supported(state->volume)) return;
+
+    if (state->volume->is_showing) {
+        volume_hide(state->volume);
+    } else {
+        volume_show(state->volume);
+    }
+}
+
 static void on_expand_clicked(GtkButton *button, gpointer user_data) {
     AppState *state = (AppState *)user_data;
     state->is_expanded = !state->is_expanded;
-    
+
     // Update icon using layout helper
     const gchar *icon_name = layout_get_expand_icon(state->layout, state->is_expanded);
     gchar *icon_path = get_icon_path(icon_name);
     gtk_image_set_from_file(GTK_IMAGE(state->expand_icon), icon_path);
     free_path(icon_path);
-    
+
+    // Hide volume when collapsing
+    if (!state->is_expanded && state->volume && state->volume->is_showing) {
+        volume_hide(state->volume);
+    }
+
     gtk_revealer_set_reveal_child(GTK_REVEALER(state->revealer), state->is_expanded);
 }
 
@@ -1301,7 +1333,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_hexpand(album_cover, FALSE);
     gtk_widget_set_vexpand(album_cover, FALSE);
     gtk_widget_set_overflow(album_cover, GTK_OVERFLOW_HIDDEN);
-    
+
+    // Double-click on album cover to toggle volume control
+    GtkGesture *album_click = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(album_click), GDK_BUTTON_PRIMARY);
+    g_signal_connect(album_click, "pressed", G_CALLBACK(on_album_cover_clicked), state);
+    gtk_widget_add_controller(album_cover, GTK_EVENT_CONTROLLER(album_click));
+
     GtkWidget *source_label = gtk_label_new("No Source");
     state->source_label = source_label;
     gtk_widget_add_css_class(source_label, "source-label");
@@ -1506,6 +1544,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
     
     // Find and connect to active media player
     find_active_player(state);
+
+    // Initialize volume control now that we have the proxy
+    state->volume = volume_init(state->mpris_proxy, state->layout->is_vertical);
+    if (state->volume && state->volume->revealer) {
+        // Add volume control to expanded section
+        gtk_box_append(GTK_BOX(gtk_revealer_get_child(GTK_REVEALER(state->revealer))), state->volume->revealer);
+    }
 
     // Load available players
     load_available_players(state);
