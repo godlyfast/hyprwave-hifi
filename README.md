@@ -329,3 +329,11 @@ Open source. Free to use, modify, and distribute.
 - Inspired by [waybar](https://github.com/Alexays/Waybar)
 - MPRIS specification by [freedesktop.org](https://www.freedesktop.org/)hyprwave/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/shantanubaddar/hyprwave/discussions)
+
+
+
+## Stargazers!
+
+[![Star History Chart](https://api.star-history.com/svg?repos=shantanubaddar/hyprwave&type=Timeline)](https://star-history.com/#shantanubaddar/hyprwave&Timeline)
+
+
