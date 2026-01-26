@@ -17,30 +17,39 @@ LayoutConfig* layout_load_config(void) {
     
     // Check if config file exists, create default if not
     if (!g_file_test(config_file, G_FILE_TEST_EXISTS)) {
-        gchar *default_config = 
-            "# HyprWave Configuration File\n"
-            "\n"
-            "[General]\n"
-            "# Edge to anchor HyprWave to\n"
-            "# Options: right, left, top, bottom\n"
-            "edge = right\n"
-            "\n"
-            "# Margin from the screen edge (in pixels)\n"
-            "margin = 10\n"
-            "\n"
-            "[Keybinds]\n"
-            "# Toggle HyprWave visibility (hide/show entire window)\n"
-            "toggle_visibility = Super+Shift+M\n"
-            "\n"
-            "# Toggle expanded section (show/hide album details)\n"
-            "toggle_expand = Super+M\n"
-            "\n"
-            "[Notifications]\n"
-            "# Enable/disable notifications\n"
-            "enabled = true\n"
-            "\n"
-            "# Show notification when song changes\n"
-            "now_playing = true\n";
+// Around line 22, add to the default config string:
+gchar *default_config = 
+    "# HyprWave Configuration File\n"
+    "\n"
+    "[General]\n"
+    "# Edge to anchor HyprWave to\n"
+    "# Options: right, left, top, bottom\n"
+    "edge = right\n"
+    "\n"
+    "# Margin from the screen edge (in pixels)\n"
+    "margin = 10\n"
+    "\n"
+    "[Keybinds]\n"
+    "# Toggle HyprWave visibility (hide/show entire window)\n"
+    "toggle_visibility = Super+Shift+M\n"
+    "\n"
+    "# Toggle expanded section (show/hide album details)\n"
+    "toggle_expand = Super+M\n"
+    "\n"
+    "[Notifications]\n"
+    "# Enable/disable notifications\n"
+    "enabled = true\n"
+    "\n"
+    "# Show notification when song changes\n"
+    "now_playing = true\n"
+    "\n"
+    "[Visualizer]\n"                          // NEW SECTION
+    "# Enable/disable visualizer (horizontal layout only)\n"
+    "enabled = true\n"
+    "\n"
+    "# Idle timeout in seconds before visualizer appears\n"
+    "# Set to 0 to disable auto-activation (visualizer only shows on demand)\n"
+    "idle_timeout = 30\n";
         
         g_file_set_contents(config_file, default_config, -1, NULL);
         g_print("Created default config at: %s\n", config_file);
@@ -49,13 +58,15 @@ LayoutConfig* layout_load_config(void) {
     // Load config
     GKeyFile *keyfile = g_key_file_new();
     
-    // Set defaults
-    config->edge = EDGE_RIGHT;
-    config->margin = 10;
-    config->toggle_visibility_bind = g_strdup("Super+Shift+M");
-    config->toggle_expand_bind = g_strdup("Super+M");
-    config->notifications_enabled = TRUE;
-    config->now_playing_enabled = TRUE;
+// Set defaults
+config->edge = EDGE_RIGHT;
+config->margin = 10;
+config->toggle_visibility_bind = g_strdup("Super+Shift+M");
+config->toggle_expand_bind = g_strdup("Super+M");
+config->notifications_enabled = TRUE;
+config->now_playing_enabled = TRUE;
+config->visualizer_enabled = TRUE;          // NEW
+config->visualizer_idle_timeout = 30;       // NEW
     
     if (g_key_file_load_from_file(keyfile, config_file, G_KEY_FILE_NONE, NULL)) {
         // Load General section
@@ -100,14 +111,31 @@ LayoutConfig* layout_load_config(void) {
             error = NULL;
         }
         
-        gboolean now_playing = g_key_file_get_boolean(keyfile, "Notifications", "now_playing", &error);
+gboolean now_playing = g_key_file_get_boolean(keyfile, "Notifications", "now_playing", &error);
         if (!error) {
             config->now_playing_enabled = now_playing;
         } else {
             g_error_free(error);
+            error = NULL;
+        }
+        
+        // Load Visualizer section (optional) - NEW
+        gboolean viz_enabled = g_key_file_get_boolean(keyfile, "Visualizer", "enabled", &error);
+        if (!error) {
+            config->visualizer_enabled = viz_enabled;
+        } else {
+            g_error_free(error);
+            error = NULL;
+        }
+        
+        gint viz_timeout = g_key_file_get_integer(keyfile, "Visualizer", "idle_timeout", &error);
+        if (!error) {
+            config->visualizer_idle_timeout = viz_timeout;
+            if (config->visualizer_idle_timeout < 0) config->visualizer_idle_timeout = 0;
+        } else {
+            g_error_free(error);
         }
     }
-    
     config->is_vertical = (config->edge == EDGE_RIGHT || config->edge == EDGE_LEFT);
     
     g_key_file_free(keyfile);
