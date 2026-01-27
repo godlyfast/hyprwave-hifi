@@ -17,7 +17,12 @@ It will not give you the bleeding new updates, but the latest releases.
 
 # Your Control Bar, Your Imagination
 
-<img width="518" height="240" alt="image" src="https://github.com/user-attachments/assets/d79afb29-844d-4bae-b899-28aea6646139" />
+<img width="518" height="240" alt="image" src="https://github.com/user-attachments/assets/d79afb29-844d-4bae-b899-28aea6646139" /> <br>
+
+
+
+<img width="289" height="301" alt="image" src="https://github.com/user-attachments/assets/53a82a39-b073-4b05-8aaf-bdc3698a0fe9" />
+
 
 Style hyprwave to your taste via the style.css!
 
