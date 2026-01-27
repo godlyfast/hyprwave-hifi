@@ -21,6 +21,9 @@
           mainProgram = "hyprwave";
         };
       };
-      apps.default = self.apps.${system}.hyprwave;
+      apps.default = {
+        type = "app";
+        program = "${hyprwave}/bin/hyprwave";
+      };
     });
 }
