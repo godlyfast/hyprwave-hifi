@@ -193,6 +193,23 @@ window > * {
     letter-spacing: 0.5px;
 }
 
+/* Player label (clickable switcher) */
+.player-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    margin-top: 8px;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.player-label:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
 /* Track title */
 .track-title {
     color: var(--text-primary);
@@ -499,28 +516,28 @@ button:focus {
 
 
 /* ========================================
-   Visualizer Bars - Idle Mode Animation
+   Visualizer Bars - Expanded Section
    ======================================== */
 
-/* Container padding to keep bars inside control bar edges */
+/* Container in expanded section */
 .visualizer-container {
-    padding: 0px;  /* 5px padding on left/right keeps bars inside */
+    padding: 4px 8px;
     overflow: hidden;
-    padding-bottom: 1px;  /* Small bottom padding to align with control bar bottom */
-    border-radius: 0 0 12px 12px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    margin-bottom: 8px;
 }
 
 .visualizer-bar {
-    /* Simple two-color gradient - black theme */
-    background: linear-gradient(180deg, 
-        rgba(46, 44, 38, 0.95),   /* Primary: Steel blue */
-        rgba(38, 37, 33, 0.95));  /* Secondary: Lighter steel blue */
-    border-radius: 0px;
+    /* Gradient for visual appeal */
+    background: linear-gradient(90deg,
+        rgba(100, 180, 255, 0.8),   /* Light blue */
+        rgba(150, 120, 255, 0.8));  /* Purple tint */
+    border-radius: 2px;
     transition: all 0.05s ease-out;
-    /* Keep bars visible */
-    margin: 0px;
-    min-width: 1px;
-    min-height: 3px;
+    margin: 1px;
+    min-width: 3px;
+    min-height: 2px;
 }
 
 /* Smooth control bar height transitions for idle mode */

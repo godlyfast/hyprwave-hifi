@@ -57,11 +57,8 @@ typedef struct {
     gchar *player_display_name;        // Human-readable name from Identity
     gboolean suppress_notification;    // Suppress during player switch
 
-    VisualizerState *visualizer;       // Visualizer state
-    guint idle_timer;                  // Idle detection timer
-    gboolean is_idle_mode;             // Are we in visualizer mode?
-    guint morph_timer;                 // Button fade animation timer
-    gdouble button_fade_opacity;
+    VisualizerState *visualizer;       // Visualizer state (in expanded section)
+    GtkWidget *visualizer_box;         // Container for visualizer bars
 } AppState;
 
 static void update_position(AppState *state);
@@ -71,9 +68,9 @@ static void on_expand_clicked(GtkButton *button, gpointer user_data);
 static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_properties,
                                   GStrv invalidated_properties, gpointer user_data);
                                   
-static void exit_idle_mode(AppState *state);
-static void reset_idle_timer(AppState *state);
-static gboolean enter_idle_mode(gpointer user_data);
+// Visualizer control (for expanded section)
+static void start_visualizer_if_expanded(AppState *state);
+static void stop_visualizer_if_collapsed(AppState *state);
 
 // Hi-Fi: Multi-player functions
 static void load_available_players(AppState *state);
@@ -106,19 +103,53 @@ static gboolean is_excluded_player(const gchar *name) {
 }
 
 // Check if chromium-based player is allowed (e.g., Cider, tidal-hifi)
+// For chromium.instance* names, check the Identity property
 static gboolean is_allowed_chromium_player(const gchar *name) {
-    // Allow specific Chromium-based apps with good MPRIS support
+    // Allow specific names directly in the D-Bus name
     const gchar *allowed[] = {
-        "Cider", "tidal", "hifi", "qobuz", "spotify", "Plexamp", NULL
+        "Cider", "tidal", "hifi", "qobuz", "spotify", "Plexamp", "roon", NULL
     };
 
     for (const gchar **a = allowed; *a; a++) {
         if (g_strstr_len(name, -1, *a)) return TRUE;
     }
 
-    // If not specifically allowed, check if it's a browser (disallow)
+    // If it's a chromium instance, check the Identity property
+    if (g_strstr_len(name, -1, "chromium.instance") ||
+        g_strstr_len(name, -1, "chrome.instance")) {
+        // Fetch Identity property to check if it's an allowed app
+        GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync(
+            G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, NULL,
+            name, "/org/mpris/MediaPlayer2",
+            "org.mpris.MediaPlayer2", NULL, NULL);
+
+        if (proxy) {
+            GVariant *identity = g_dbus_proxy_get_cached_property(proxy, "Identity");
+            if (identity) {
+                const gchar *id_str = g_variant_get_string(identity, NULL);
+                gboolean allowed_app = FALSE;
+
+                // Check if Identity contains allowed app names
+                for (const gchar **a = allowed; *a; a++) {
+                    if (g_strstr_len(id_str, -1, *a)) {
+                        allowed_app = TRUE;
+                        break;
+                    }
+                }
+
+                g_variant_unref(identity);
+                g_object_unref(proxy);
+                return allowed_app;
+            }
+            g_object_unref(proxy);
+        }
+        return FALSE;  // Unknown chromium instance, filter it
+    }
+
+    // Block generic browser names
     if (g_strstr_len(name, -1, "chromium") ||
-        g_strstr_len(name, -1, "chrome")) {
+        g_strstr_len(name, -1, "chrome") ||
+        g_strstr_len(name, -1, "firefox")) {
         return FALSE;
     }
 
@@ -362,20 +393,13 @@ static void on_window_hide_complete(GObject *revealer, GParamSpec *pspec, gpoint
 static void handle_sigusr1(int sig) {
     if (!global_state) return;
     global_state->is_visible = !global_state->is_visible;
-    
+
     if (!global_state->is_visible) {
-        // HIDE: Just hide visualizer, don't stop audio capture
-        if (global_state->is_idle_mode && global_state->visualizer) {
-            visualizer_hide(global_state->visualizer);
-            // DON'T call visualizer_stop() - keep audio running in background
+        // HIDE: Stop visualizer if expanded
+        if (global_state->is_expanded && global_state->visualizer) {
+            visualizer_stop(global_state->visualizer);
         }
-        
-        // Cancel idle timer
-        if (global_state->idle_timer > 0) {
-            g_source_remove(global_state->idle_timer);
-            global_state->idle_timer = 0;
-        }
-        
+
         if (global_state->is_expanded) {
             global_state->is_expanded = FALSE;
             gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), FALSE);
@@ -385,238 +409,36 @@ static void handle_sigusr1(int sig) {
         // SHOW
         gtk_widget_set_visible(global_state->window, TRUE);
         gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), TRUE);
-        
-        // If we were in idle mode before hiding, restore visualizer
-        if (global_state->is_idle_mode && global_state->visualizer) {
-            visualizer_show(global_state->visualizer);
-        }
-        
-        // Restart idle timer when showing (only if not expanded and not in idle mode)
-// Restart idle timer when showing (only if not expanded and not in idle mode)
-        if (!global_state->is_expanded && !global_state->layout->is_vertical && 
-            global_state->visualizer && !global_state->is_idle_mode &&
-            global_state->layout->visualizer_enabled && 
-            global_state->layout->visualizer_idle_timeout > 0) {
-            global_state->idle_timer = g_timeout_add_seconds(global_state->layout->visualizer_idle_timeout, 
-                                                              enter_idle_mode, global_state);
-        }
     }
 }
 
 static void handle_sigusr2(int sig) {
     if (!global_state) return;
     if (!global_state->is_visible) return;
-    
-    // If in idle mode, allow expansion but keep visualizer running
-    if (global_state->is_idle_mode) {
-        // Toggle expansion
-        global_state->is_expanded = !global_state->is_expanded;
-        
-        // Hide volume if collapsing
-        if (!global_state->is_expanded && global_state->volume && global_state->volume->is_showing) {
-            volume_hide(global_state->volume);
-        }
-        
-        if (global_state->is_expanded) {
-            // Cancel idle timer while expanded
-            if (global_state->idle_timer > 0) {
-                g_source_remove(global_state->idle_timer);
-                global_state->idle_timer = 0;
-            }
-        }
-        // Note: We don't hide/show visualizer anymore - it just keeps running
-        
-        // Update expand icon and revealer
-        const gchar *icon_name = layout_get_expand_icon(global_state->layout, global_state->is_expanded);
-        gchar *icon_path = get_icon_path(icon_name);
-        gtk_image_set_from_file(GTK_IMAGE(global_state->expand_icon), icon_path);
-        free_path(icon_path);
-        gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), global_state->is_expanded);
-        
-        return;
-    }
-    
-    // Normal expand toggle (not in idle mode)
     on_expand_clicked(NULL, global_state);
 }
 
 
 
 
-static gboolean animate_button_fade(gpointer user_data) {
-    AppState *state = (AppState *)user_data;
-    
-    if (state->is_idle_mode) {
-        // Fade out buttons
-        state->button_fade_opacity -= 0.05;
-        if (state->button_fade_opacity <= 0.0) {
-            state->button_fade_opacity = 0.0;
-            
-            // CRITICAL: Actually HIDE the buttons so they don't block resize
-            gtk_widget_set_visible(state->prev_btn, FALSE);
-            gtk_widget_set_visible(state->play_btn, FALSE);
-            gtk_widget_set_visible(state->next_btn, FALSE);
-            gtk_widget_set_visible(state->expand_btn, FALSE);
-            
-            g_print("  Buttons hidden - bar can now shrink\n");
-            
-            state->morph_timer = 0;
-            return G_SOURCE_REMOVE;
-        }
-    } else {
-        // Make buttons visible first if they were hidden
-        if (state->button_fade_opacity == 0.0) {
-            gtk_widget_set_visible(state->prev_btn, TRUE);
-            gtk_widget_set_visible(state->play_btn, TRUE);
-            gtk_widget_set_visible(state->next_btn, TRUE);
-            gtk_widget_set_visible(state->expand_btn, TRUE);
-            g_print("  Buttons visible again\n");
-        }
-        
-        // Fade in buttons
-        state->button_fade_opacity += 0.05;
-        if (state->button_fade_opacity >= 1.0) {
-            state->button_fade_opacity = 1.0;
-            state->morph_timer = 0;
-            return G_SOURCE_REMOVE;
-        }
-    }
-    
-    // Apply opacity to all buttons
-    gtk_widget_set_opacity(state->prev_btn, state->button_fade_opacity);
-    gtk_widget_set_opacity(state->play_btn, state->button_fade_opacity);
-    gtk_widget_set_opacity(state->next_btn, state->button_fade_opacity);
-    gtk_widget_set_opacity(state->expand_btn, state->button_fade_opacity);
-    
-    return G_SOURCE_CONTINUE;
-}
+// ========================================
+// VISUALIZER CONTROL (for expanded section)
+// ========================================
 
-// Enter idle mode - morph to visualizer
-// REPLACE enter_idle_mode with this:
-// REPLACE enter_idle_mode with this:
-// Helper function for delayed resize
-static gboolean delayed_control_bar_resize(gpointer user_data) {
-    AppState *state = (AppState *)user_data;
-    gtk_widget_set_size_request(state->control_bar_container, 280, 32);
-    gtk_widget_queue_resize(state->control_bar_container);
-    g_print("  Size request set to: 280x32 (after button fade)\n");
-    return G_SOURCE_REMOVE;
-}
-
-// REPLACE enter_idle_mode with this:
-static gboolean enter_idle_mode(gpointer user_data) {
-    AppState *state = (AppState *)user_data;
-    
-    // Don't enter idle mode if not visible, expanded, or in vertical layout
-    if (state->is_idle_mode || !state->is_visible || state->is_expanded || 
-        state->layout->is_vertical || !state->visualizer) {
-        return G_SOURCE_REMOVE;
-    }
-    
-    g_print("→ Entering idle mode - morphing to visualizer\n");
-    state->is_idle_mode = TRUE;
-    
-    // Hide volume if showing
-    if (state->volume && state->volume->is_showing) {
-        volume_hide(state->volume);
-    }
-    
-    // Debug: Print current size
-    GtkAllocation alloc;
-    gtk_widget_get_allocation(state->control_bar_container, &alloc);
-    g_print("  Before morph: %dx%d\n", alloc.width, alloc.height);
-    
-    // Start button fade-out animation FIRST
-    // The animation will hide buttons when opacity reaches 0
-    if (state->morph_timer > 0) {
-        g_source_remove(state->morph_timer);
-    }
-    state->morph_timer = g_timeout_add(16, animate_button_fade, state);  // ~60fps
-    
-    // Start audio capture and show visualizer
+static void start_visualizer_if_expanded(AppState *state) {
+    if (!state->visualizer || !state->layout->visualizer_enabled) return;
     if (!state->visualizer->is_running) {
         visualizer_start(state->visualizer);
+        g_print("✓ Visualizer started (expanded)\n");
     }
     visualizer_show(state->visualizer);
-    
-    // Resize AFTER buttons fade (350ms delay)
-    // This lets buttons hide first, then bar can shrink
-    g_timeout_add(350, delayed_control_bar_resize, state);
-    
-    state->idle_timer = 0;
-    return G_SOURCE_REMOVE;
 }
 
-static void exit_idle_mode(AppState *state) {
-    if (!state->is_idle_mode || !state->visualizer) return;
-    
-    g_print("← Exiting idle mode - restoring buttons\n");
-    state->is_idle_mode = FALSE;
-    
-    // Debug: Print current size
-    GtkAllocation alloc;
-    gtk_widget_get_allocation(state->control_bar_container, &alloc);
-    g_print("  Before restore: %dx%d\n", alloc.width, alloc.height);
-    
-    // Restore control bar: 280x32 → 240x60 (NARROWER + TALLER)
-    gtk_widget_set_size_request(state->control_bar_container, 240, 60);
-    
-    // Force update
-    gtk_widget_queue_resize(state->control_bar_container);
-    gtk_widget_queue_allocate(state->control_bar_container);
-    
-    g_print("  Size request set to: 240x60\n");
-    
-    // Hide visualizer
+static void stop_visualizer_if_collapsed(AppState *state) {
+    if (!state->visualizer) return;
     visualizer_hide(state->visualizer);
-    
-    // Start button fade-in animation
-    if (state->morph_timer > 0) {
-        g_source_remove(state->morph_timer);
-    }
-    state->morph_timer = g_timeout_add(16, animate_button_fade, state);  // ~60fps
-    
-// Restart idle timer (directly, not via reset_idle_timer)
-    if (state->is_visible && !state->is_expanded && !state->layout->is_vertical && 
-        state->visualizer && state->layout->visualizer_enabled && 
-        state->layout->visualizer_idle_timeout > 0) {
-        state->idle_timer = g_timeout_add_seconds(state->layout->visualizer_idle_timeout, 
-                                                   enter_idle_mode, state);
-    }
+    // Keep audio capture running for quick resume
 }
-
-static void reset_idle_timer(AppState *state) {
-    // Cancel existing timer
-    if (state->idle_timer > 0) {
-        g_source_remove(state->idle_timer);
-        state->idle_timer = 0;
-    }
-    
-    // Exit idle mode if currently in it (restore buttons)
-    // This function is only called by on_mouse_motion
-    if (state->is_idle_mode) {
-        exit_idle_mode(state);
-        return; // exit_idle_mode will restart the timer
-    }
-    
-    // Start new idle timer (only if visualizer enabled, timeout > 0, visible, not expanded, horizontal)
-    if (state->is_visible && !state->is_expanded && 
-        !state->layout->is_vertical && state->visualizer &&
-        state->layout->visualizer_enabled && state->layout->visualizer_idle_timeout > 0) {
-        state->idle_timer = g_timeout_add_seconds(state->layout->visualizer_idle_timeout, 
-                                                   enter_idle_mode, state);
-    }
-}
-
-// Mouse motion handler (for detecting user activity)
-static gboolean on_mouse_motion(GtkEventControllerMotion *controller,
-                                 gdouble x, gdouble y,
-                                 gpointer user_data) {
-    AppState *state = (AppState *)user_data;
-    reset_idle_timer(state);
-    return FALSE;
-}
-
 
 static gint64 get_variant_as_int64(GVariant *value) {
     if (value == NULL) return 0;
@@ -913,7 +735,7 @@ static void update_metadata(AppState *state) {
         gtk_label_set_text(GTK_LABEL(state->artist_label), "Unknown Artist");
     }
     
-    load_album_art_to_container(art_url, state->album_cover, 120);
+    load_album_art_to_container(art_url, state->album_cover, 240);
     
     if (state->current_player) {
         GError *error = NULL;
@@ -991,37 +813,31 @@ static void connect_to_player(AppState *state, const gchar *bus_name) {
 }
 
 static void find_active_player(AppState *state) {
-    GError *error = NULL;
-    GDBusProxy *dbus_proxy = g_dbus_proxy_new_for_bus_sync(
-        G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, NULL,
-        "org.freedesktop.DBus", "/org/freedesktop/DBus",
-        "org.freedesktop.DBus", NULL, &error);
+    // Hi-Fi: Use multi-player logic with preference persistence
+    load_available_players(state);
 
-    if (error) {
-        g_error_free(error);
+    if (state->player_count == 0) {
+        g_print("No MPRIS players found\n");
         return;
     }
 
-    GVariant *result = g_dbus_proxy_call_sync(dbus_proxy, "ListNames", NULL,
-                                              G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
-    if (error) {
-        g_error_free(error);
-        g_object_unref(dbus_proxy);
-        return;
-    }
-
-    GVariantIter *iter;
-    g_variant_get(result, "(as)", &iter);
-    const gchar *name;
-    while (g_variant_iter_loop(iter, "&s", &name)) {
-        if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.")) {
-            connect_to_player(state, name);
-            break;
+    // Try to restore preferred player
+    gchar *preferred = load_preferred_player();
+    if (preferred) {
+        for (int i = 0; state->players[i]; i++) {
+            if (g_strcmp0(state->players[i], preferred) == 0) {
+                switch_to_player(state, preferred);
+                g_free(preferred);
+                return;
+            }
         }
+        g_free(preferred);
     }
-    g_variant_iter_free(iter);
-    g_variant_unref(result);
-    g_object_unref(dbus_proxy);
+
+    // Otherwise connect to first available player
+    if (state->players[0]) {
+        switch_to_player(state, state->players[0]);
+    }
 }
 
 static void on_play_clicked(GtkButton *button, gpointer user_data) {
@@ -1050,46 +866,24 @@ static void on_next_clicked(GtkButton *button, gpointer user_data) {
 
 static void on_expand_clicked(GtkButton *button, gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    
-    // SAFETY: Don't process if already transitioning
-    if (state->morph_timer > 0) {
-        g_print("⸻ Expand blocked - morph animation in progress\n");
-        return;
-    }
-    
-    // Exit idle mode first if active (mouse click path)
-    if (state->is_idle_mode) {
-        exit_idle_mode(state);
-        // Don't toggle expansion while exiting idle mode
-        return;
-    }
-    
+
     state->is_expanded = !state->is_expanded;
-    
+
     if (!state->is_expanded && state->volume && state->volume->is_showing) {
         volume_hide(state->volume);
     }
-    
+
     const gchar *icon_name = layout_get_expand_icon(state->layout, state->is_expanded);
     gchar *icon_path = get_icon_path(icon_name);
     gtk_image_set_from_file(GTK_IMAGE(state->expand_icon), icon_path);
     free_path(icon_path);
     gtk_revealer_set_reveal_child(GTK_REVEALER(state->revealer), state->is_expanded);
-    
-    // MANAGE IDLE TIMER:
+
+    // Start/stop visualizer based on expanded state
     if (state->is_expanded) {
-        // Cancel idle timer when expanded
-        if (state->idle_timer > 0) {
-            g_source_remove(state->idle_timer);
-            state->idle_timer = 0;
-        }
+        start_visualizer_if_expanded(state);
     } else {
-        // Restart idle timer when collapsed (direct, not via reset_idle_timer)
-        if (state->is_visible && !state->layout->is_vertical && state->visualizer &&
-            state->layout->visualizer_enabled && state->layout->visualizer_idle_timeout > 0) {
-            state->idle_timer = g_timeout_add_seconds(state->layout->visualizer_idle_timeout, 
-                                                       enter_idle_mode, state);
-        }
+        stop_visualizer_if_collapsed(state);
     }
 }
 
@@ -1223,10 +1017,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->layout = layout_load_config();
     state->notification = notification_init(app);
     state->volume = NULL;
-    state->is_idle_mode = FALSE;
-    state->idle_timer = 0;
-    state->morph_timer = 0;
-    state->button_fade_opacity = 1.0;
+    state->visualizer = NULL;
+    state->visualizer_box = NULL;
     
     // Create window FIRST
     GtkWidget *window = gtk_application_window_new(app);
@@ -1235,7 +1027,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     
     // Set window size IMMEDIATELY to match control_bar
     if (state->layout->is_vertical) {
-        gtk_window_set_default_size(GTK_WINDOW(window), 70, -1);
+        gtk_window_set_default_size(GTK_WINDOW(window), 50, -1);
         gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
     } else {
         gtk_window_set_default_size(GTK_WINDOW(window), -1, 60);
@@ -1256,7 +1048,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     GtkWidget *album_cover = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     state->album_cover = album_cover;
     gtk_widget_add_css_class(album_cover, "album-cover");
-    gtk_widget_set_size_request(album_cover, 120, 120);
+    gtk_widget_set_size_request(album_cover, 240, 240);
     gtk_widget_set_halign(album_cover, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(album_cover, GTK_ALIGN_CENTER);
     gtk_widget_set_hexpand(album_cover, FALSE);
@@ -1271,7 +1063,22 @@ static void activate(GtkApplication *app, gpointer user_data) {
     GtkWidget *source_label = gtk_label_new("No Source");
     state->source_label = source_label;
     gtk_widget_add_css_class(source_label, "source-label");
-    
+
+    // Hi-Fi: Format label for bitrate/quality display
+    GtkWidget *format_label = gtk_label_new("");
+    state->format_label = format_label;
+    gtk_widget_add_css_class(format_label, "format-label");
+    gtk_widget_set_visible(format_label, FALSE);
+
+    // Hi-Fi: Player label with click-to-switch
+    GtkWidget *player_label = gtk_label_new("Click to switch");
+    state->player_label = player_label;
+    gtk_widget_add_css_class(player_label, "player-label");
+    GtkGesture *player_click = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(player_click), GDK_BUTTON_PRIMARY);
+    gtk_widget_add_controller(player_label, GTK_EVENT_CONTROLLER(player_click));
+    g_signal_connect(player_click, "pressed", G_CALLBACK(on_player_clicked), state);
+
     GtkWidget *track_title = gtk_label_new("No Track Playing");
     state->track_title = track_title;
     gtk_widget_add_css_class(track_title, "track-title");
@@ -1300,10 +1107,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     ExpandedWidgets expanded_widgets = {
         .album_cover = album_cover, .source_label = source_label,
+        .format_label = format_label, .player_label = player_label,
         .track_title = track_title, .artist_label = artist_label,
-        .progress_bar = progress_bar, .time_remaining = time_remaining
+        .progress_bar = progress_bar, .time_remaining = time_remaining,
+        .visualizer_box = NULL  // Will be created by layout_create_expanded_section
     };
     GtkWidget *expanded_section = layout_create_expanded_section(state->layout, &expanded_widgets);
+    state->visualizer_box = expanded_widgets.visualizer_box;  // Store reference
 
     // Initialize volume
     state->volume = volume_init(NULL, state->layout->is_vertical);
@@ -1338,7 +1148,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // CONTROL BUTTONS - Create all buttons
     // ========================================
     GtkWidget *prev_btn = gtk_button_new();
-    gtk_widget_set_size_request(prev_btn, 44, 44);
+    gtk_widget_set_size_request(prev_btn, 36, 36);
     gchar *prev_icon_path = get_icon_path("previous.svg");
     GtkWidget *prev_icon = gtk_image_new_from_file(prev_icon_path);
     free_path(prev_icon_path);
@@ -1349,7 +1159,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_signal_connect(prev_btn, "clicked", G_CALLBACK(on_prev_clicked), state);
 
     GtkWidget *play_btn = gtk_button_new();
-    gtk_widget_set_size_request(play_btn, 44, 44);
+    gtk_widget_set_size_request(play_btn, 36, 36);
     gchar *play_icon_path = get_icon_path("play.svg");
     GtkWidget *play_icon = gtk_image_new_from_file(play_icon_path);
     free_path(play_icon_path);
@@ -1361,7 +1171,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_signal_connect(play_btn, "clicked", G_CALLBACK(on_play_clicked), state);
 
     GtkWidget *next_btn = gtk_button_new();
-    gtk_widget_set_size_request(next_btn, 44, 44);
+    gtk_widget_set_size_request(next_btn, 36, 36);
     gchar *next_icon_path = get_icon_path("next.svg");
     GtkWidget *next_icon = gtk_image_new_from_file(next_icon_path);
     free_path(next_icon_path);
@@ -1372,7 +1182,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_signal_connect(next_btn, "clicked", G_CALLBACK(on_next_clicked), state);
 
     GtkWidget *expand_btn = gtk_button_new();
-    gtk_widget_set_size_request(expand_btn, 44, 44);
+    gtk_widget_set_size_request(expand_btn, 36, 36);
     const gchar *initial_icon_name = layout_get_expand_icon(state->layout, FALSE);
     gchar *expand_icon_path = get_icon_path(initial_icon_name);
     GtkWidget *expand_icon = gtk_image_new_from_file(expand_icon_path);
@@ -1391,61 +1201,40 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->expand_btn = expand_btn;
 
     // ========================================
-    // CONTROL BAR + VISUALIZER SETUP
+    // CONTROL BAR SETUP
     // ========================================
-    GtkWidget *final_control_widget;  // What goes into main_container
-    
-    if (state->layout->is_vertical) {
-        // Vertical: No visualizer, just buttons
-        state->visualizer = NULL;
-        
-        final_control_widget = layout_create_control_bar(state->layout, 
-            &prev_btn, &play_btn, &next_btn, &expand_btn);
-        
-        // Store reference to the control bar itself
-        state->control_bar_container = final_control_widget;
-        
-    } else {
-        // Horizontal: Create visualizer if enabled, otherwise just buttons
-        if (state->layout->visualizer_enabled) {
-            state->visualizer = visualizer_init();
-        } else {
-            state->visualizer = NULL;
-        }
-        
-        // Create control bar
-        GtkWidget *control_bar = layout_create_control_bar(state->layout, 
-            &prev_btn, &play_btn, &next_btn, &expand_btn);
-        
-        // CRITICAL: Store reference to the ACTUAL control bar for resizing
-        state->control_bar_container = control_bar;
-        
+    GtkWidget *control_bar = layout_create_control_bar(state->layout,
+        &prev_btn, &play_btn, &next_btn, &expand_btn);
+    state->control_bar_container = control_bar;
+
+    // ========================================
+    // VISUALIZER SETUP (in expanded section)
+    // ========================================
+    if (state->layout->visualizer_enabled && state->visualizer_box) {
+        // Create visualizer (horizontal bars for vertical layout, vertical for horizontal)
+        state->visualizer = visualizer_init(!state->layout->is_vertical);
+
         if (state->visualizer) {
-            // Create overlay: control bar as base, visualizer on top
-            GtkWidget *overlay = gtk_overlay_new();
-            gtk_overlay_set_child(GTK_OVERLAY(overlay), control_bar);
-            
-            // CRITICAL: Visualizer must pass through clicks to buttons below
-            gtk_widget_set_can_target(state->visualizer->container, FALSE);
-            
-            gtk_overlay_add_overlay(GTK_OVERLAY(overlay), state->visualizer->container);
-            
-            // Visualizer starts hidden and fully transparent
+            // Add visualizer container to the expanded section's visualizer_box
+            gtk_box_append(GTK_BOX(state->visualizer_box), state->visualizer->container);
+            gtk_widget_set_hexpand(state->visualizer->container, TRUE);
+            gtk_widget_set_vexpand(state->visualizer->container, TRUE);
+
+            // Start hidden (will show when expanded)
             gtk_widget_set_visible(state->visualizer->container, TRUE);
-            gtk_widget_set_opacity(state->visualizer->container, 0.0);
-            state->visualizer->fade_opacity = 0.0;  // Start at 0
-            
-            // Use overlay as the widget that goes into main_container
-            final_control_widget = overlay;
-        } else {
-            // No visualizer - just use control bar directly
-            final_control_widget = control_bar;
+            gtk_widget_set_opacity(state->visualizer->container, 1.0);
+            state->visualizer->fade_opacity = 1.0;
+            state->visualizer->is_showing = FALSE;
+
+            g_print("✓ Visualizer added to expanded section\n");
         }
+    } else {
+        state->visualizer = NULL;
     }
     
     // Create main container
-    GtkWidget *main_container = layout_create_main_container(state->layout, 
-        final_control_widget, revealer);
+    GtkWidget *main_container = layout_create_main_container(state->layout,
+        control_bar, revealer);
 
     // ========================================
     // WINDOW REVEALER
@@ -1508,16 +1297,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_revealer_set_transition_duration(GTK_REVEALER(window_revealer), window_duration);
     gtk_revealer_set_transition_duration(GTK_REVEALER(revealer), internal_duration);
     
- if (!state->layout->is_vertical && state->visualizer) {
-    GtkEventController *motion_controller = gtk_event_controller_motion_new();
-    g_signal_connect(motion_controller, "motion", G_CALLBACK(on_mouse_motion), state);
-    
-    // CRITICAL: Attach to control_bar_container, NOT window!
-    // This way motion only triggers when hovering over the visualizer/control bar
-    gtk_widget_add_controller(state->control_bar_container, motion_controller);
-    
-    g_print("✓ Mouse motion detector attached to control bar only\n");
-}
     // ========================================
     // FINALIZE
     // ========================================
@@ -1527,12 +1306,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     find_active_player(state);
     state->update_timer = g_timeout_add_seconds(1, update_position_tick, state);
-    
-    // Start idle timer (only for horizontal layout with visualizer enabled and timeout > 0)
-    if (!state->layout->is_vertical && state->visualizer && 
-        state->layout->visualizer_enabled && state->layout->visualizer_idle_timeout > 0) {
-        reset_idle_timer(state);
-    }
+
+    g_print("Layout: %s edge (%s)\n",
+            state->layout->edge == EDGE_RIGHT ? "right" :
+            state->layout->edge == EDGE_LEFT ? "left" :
+            state->layout->edge == EDGE_TOP ? "top" : "bottom",
+            state->layout->is_vertical ? "vertical" : "horizontal");
 }
 
 

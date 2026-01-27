@@ -34,15 +34,15 @@ static void pa_stream_read_callback(pa_stream *stream, size_t nbytes, void *user
     VisualizerState *state = (VisualizerState *)userdata;
     const void *data;
     size_t length;
-    
+
     if (pa_stream_peek(stream, &data, &length) < 0 || !data) {
         if (data) pa_stream_drop(stream);
         return;
     }
-    
+
     const float *samples = (const float *)data;
     size_t n_samples = length / sizeof(float);
-    
+
     process_audio_samples(state, samples, n_samples);
     pa_stream_drop(stream);
 }
@@ -50,40 +50,36 @@ static void pa_stream_read_callback(pa_stream *stream, size_t nbytes, void *user
 // Update visualizer bars (~30fps)
 static gboolean update_visualizer(gpointer user_data) {
     VisualizerState *state = (VisualizerState *)user_data;
-    
+
     if (!state->is_showing) {
         return G_SOURCE_CONTINUE;
     }
-    
+
     for (int i = 0; i < VISUALIZER_BARS; i++) {
-        gint min_height = 1;   // Minimum bar height
-        gint max_height = 24;  // Maximum bar height (fits in 32px control bar)
-        
+        gint min_size = 1;
+        gint max_size = state->is_vertical ? 50 : 24;  // Wider bars for vertical layout
+
         // Decay to minimum if no audio
         if (state->bar_heights[i] < 0.01) {
             state->bar_heights[i] = 0.0;
         }
-        
-        // Calculate bar height
-        gint bar_height = min_height + (gint)(state->bar_heights[i] * (max_height - min_height));
-        
-        // Update size (opacity handled by container)
-        gtk_widget_set_size_request(state->bars[i], 3, bar_height);
-        
-        // Make sure bars are visible
-        gtk_widget_set_visible(state->bars[i], TRUE);
-        
-        if (bar_height <= min_height) {
-          gtk_widget_set_opacity(state->bars[i], 0.0);
-        } else {
-          gtk_widget_set_opacity(state->bars[i], 1.0);
-}
 
-gtk_widget_set_size_request(state->bars[i], 3, bar_height);
-        
+        // Calculate bar size
+        gint bar_size = min_size + (gint)(state->bar_heights[i] * (max_size - min_size));
+
+        // Update size based on orientation
+        if (state->is_vertical) {
+            // Vertical layout: bars grow horizontally (width changes)
+            gtk_widget_set_size_request(state->bars[i], bar_size, 3);
+        } else {
+            // Horizontal layout: bars grow vertically (height changes)
+            gtk_widget_set_size_request(state->bars[i], 3, bar_size);
+        }
+
+        gtk_widget_set_visible(state->bars[i], TRUE);
+        gtk_widget_set_opacity(state->bars[i], bar_size <= min_size ? 0.0 : 1.0);
     }
 
-    
     return G_SOURCE_CONTINUE;
 }
 
@@ -163,56 +159,71 @@ static void pa_context_state_callback(pa_context *context, void *userdata) {
 }
 
 // Initialize visualizer
-VisualizerState* visualizer_init() {
+VisualizerState* visualizer_init(gboolean is_vertical) {
     VisualizerState *state = g_new0(VisualizerState, 1);
     state->is_showing = FALSE;
     state->is_running = FALSE;
+    state->is_vertical = is_vertical;
     state->fade_opacity = 0.0;
-    
+
     // Zero out audio data
     for (int i = 0; i < VISUALIZER_BARS; i++) {
         state->bar_heights[i] = 0.0;
         state->bar_smoothed[i] = 0.0;
     }
-    
-    // Create container - Fixed width that fits perfectly
-    GtkWidget *container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+
+    // Create container based on orientation
+    GtkOrientation container_orient = is_vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
+    GtkWidget *container = gtk_box_new(container_orient, 0);
     state->container = container;
-    
+
     gtk_widget_set_overflow(container, GTK_OVERFLOW_HIDDEN);
-    
-    // Fixed width, centered, bottom aligned
-    gtk_widget_set_halign(container, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(container, GTK_ALIGN_END);   // Bottom align
-    gtk_widget_set_hexpand(container, FALSE);          // Don't expand!
+
+    if (is_vertical) {
+        // Vertical layout: bars stack vertically, grow horizontally
+        gtk_widget_set_halign(container, GTK_ALIGN_START);
+        gtk_widget_set_valign(container, GTK_ALIGN_CENTER);
+        gtk_widget_set_size_request(container, -1, 200);
+    } else {
+        // Horizontal layout: bars stack horizontally, grow vertically
+        gtk_widget_set_halign(container, GTK_ALIGN_CENTER);
+        gtk_widget_set_valign(container, GTK_ALIGN_END);
+        gtk_widget_set_size_request(container, 275, -1);
+    }
+
+    gtk_widget_set_hexpand(container, FALSE);
     gtk_widget_set_vexpand(container, FALSE);
-    
-    // Fixed width that leaves no gaps
-    gtk_widget_set_size_request(container, 275, -1);
-    
-    
-    // Add CSS class for padding control
     gtk_widget_add_css_class(container, "visualizer-container");
-    
-    g_print("✓ Visualizer container: 270px fixed width with padding\n");
-    
-    // Create 15 bars - distribute across 220px
+
+    g_print("✓ Visualizer container: %s layout\n", is_vertical ? "vertical" : "horizontal");
+
+    // Create bars
     for (int i = 0; i < VISUALIZER_BARS; i++) {
-        GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        GtkOrientation bar_orient = is_vertical ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL;
+        GtkWidget *bar = gtk_box_new(bar_orient, 0);
         state->bars[i] = bar;
-        
+
         gtk_widget_add_css_class(bar, "visualizer-bar");
-        // 220px / 15 bars = ~14-15px per bar
-        gtk_widget_set_size_request(bar, -1, 3);
         gtk_widget_set_visible(bar, TRUE);
-        gtk_widget_set_valign(bar, GTK_ALIGN_END);
-        gtk_widget_set_hexpand(bar, TRUE);
-        gtk_widget_set_halign(bar, GTK_ALIGN_FILL);
-        
+
+        if (is_vertical) {
+            // Vertical: bars grow horizontally (width)
+            gtk_widget_set_size_request(bar, 3, -1);
+            gtk_widget_set_halign(bar, GTK_ALIGN_START);
+            gtk_widget_set_vexpand(bar, TRUE);
+            gtk_widget_set_valign(bar, GTK_ALIGN_FILL);
+        } else {
+            // Horizontal: bars grow vertically (height)
+            gtk_widget_set_size_request(bar, -1, 3);
+            gtk_widget_set_valign(bar, GTK_ALIGN_END);
+            gtk_widget_set_hexpand(bar, TRUE);
+            gtk_widget_set_halign(bar, GTK_ALIGN_FILL);
+        }
+
         gtk_box_append(GTK_BOX(container), bar);
     }
-    
-    g_print("✓ 15 bars created (~14-15px each)\n");
+
+    g_print("✓ %d bars created for %s layout\n", VISUALIZER_BARS, is_vertical ? "vertical" : "horizontal");
     
     // Initialize PulseAudio
     state->pa_mainloop = pa_threaded_mainloop_new();

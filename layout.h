@@ -33,6 +33,7 @@ typedef struct {
     GtkWidget *artist_label;
     GtkWidget *progress_bar;
     GtkWidget *time_remaining;
+    GtkWidget *visualizer_box;  // Container for visualizer bars
 } ExpandedWidgets;
 
 // Config management

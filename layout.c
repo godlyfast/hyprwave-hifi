@@ -234,6 +234,12 @@ GtkWidget* layout_create_control_bar(LayoutConfig *config,
 GtkWidget* layout_create_expanded_section(LayoutConfig *config, ExpandedWidgets *widgets) {
     GtkWidget *expanded_section;
 
+    // Create visualizer container (empty box - bars added by main.c)
+    widgets->visualizer_box = gtk_box_new(
+        config->is_vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL, 1);
+    gtk_widget_add_css_class(widgets->visualizer_box, "visualizer-container");
+    gtk_widget_set_halign(widgets->visualizer_box, GTK_ALIGN_CENTER);
+
     if (config->is_vertical) {
         // Vertical layout: stack everything vertically
         expanded_section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -241,9 +247,11 @@ GtkWidget* layout_create_expanded_section(LayoutConfig *config, ExpandedWidgets 
         gtk_widget_set_halign(expanded_section, GTK_ALIGN_CENTER);
         gtk_widget_set_valign(expanded_section, GTK_ALIGN_CENTER);
 
+        // Visualizer at top of expanded section
+        gtk_widget_set_size_request(widgets->visualizer_box, 180, 40);
+        gtk_box_append(GTK_BOX(expanded_section), widgets->visualizer_box);
+
         gtk_box_append(GTK_BOX(expanded_section), widgets->album_cover);
-        gtk_box_append(GTK_BOX(expanded_section), widgets->source_label);
-        gtk_box_append(GTK_BOX(expanded_section), widgets->format_label);
         gtk_box_append(GTK_BOX(expanded_section), widgets->player_label);
         gtk_box_append(GTK_BOX(expanded_section), widgets->track_title);
         gtk_box_append(GTK_BOX(expanded_section), widgets->artist_label);
@@ -261,8 +269,6 @@ GtkWidget* layout_create_expanded_section(LayoutConfig *config, ExpandedWidgets 
         GtkWidget *info_panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
         gtk_widget_set_valign(info_panel, GTK_ALIGN_CENTER);
 
-        gtk_label_set_xalign(GTK_LABEL(widgets->source_label), 0.0);
-        gtk_label_set_xalign(GTK_LABEL(widgets->format_label), 0.0);
         gtk_label_set_xalign(GTK_LABEL(widgets->player_label), 0.0);
         gtk_label_set_xalign(GTK_LABEL(widgets->track_title), 0.0);
         gtk_label_set_xalign(GTK_LABEL(widgets->artist_label), 0.0);
@@ -273,13 +279,14 @@ GtkWidget* layout_create_expanded_section(LayoutConfig *config, ExpandedWidgets 
         gtk_label_set_max_width_chars(GTK_LABEL(widgets->artist_label), 25);
         gtk_widget_set_size_request(widgets->progress_bar, 180, 16);  // Taller for easier clicking
 
-        gtk_box_append(GTK_BOX(info_panel), widgets->source_label);
-        gtk_box_append(GTK_BOX(info_panel), widgets->format_label);
         gtk_box_append(GTK_BOX(info_panel), widgets->player_label);
         gtk_box_append(GTK_BOX(info_panel), widgets->track_title);
         gtk_box_append(GTK_BOX(info_panel), widgets->artist_label);
         gtk_box_append(GTK_BOX(info_panel), widgets->progress_bar);
         gtk_box_append(GTK_BOX(info_panel), widgets->time_remaining);
+
+        // Visualizer below album art
+        gtk_widget_set_size_request(widgets->visualizer_box, -1, 30);
 
         gtk_box_append(GTK_BOX(expanded_section), widgets->album_cover);
         gtk_box_append(GTK_BOX(expanded_section), info_panel);

@@ -24,13 +24,14 @@ typedef struct {
     // State
     gboolean is_showing;
     gboolean is_running;
+    gboolean is_vertical;  // Layout orientation
     guint render_timer;
     guint fade_timer;
     gdouble fade_opacity;
 } VisualizerState;
 
-// Initialize visualizer (horizontal layout only)
-VisualizerState* visualizer_init();
+// Initialize visualizer (supports both horizontal and vertical layouts)
+VisualizerState* visualizer_init(gboolean is_vertical);
 
 // Show/hide visualizer (fades in/out)
 void visualizer_show(VisualizerState *state);
