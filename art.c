@@ -17,20 +17,11 @@ GtkWidget* load_album_art_to_container(const gchar *art_url, GtkWidget *containe
 
     GdkPixbuf *pixbuf = NULL;
 
-    // Load at higher resolution for better quality on HiDPI displays
-    // For main album art (size > 100), load at native resolution or 2x
-    // For notifications (size <= 100), load at requested size
-    gint load_size = (size > 100) ? -1 : size;  // -1 = native resolution
-
     if (g_str_has_prefix(art_url, "file://")) {
         gchar *file_path = g_filename_from_uri(art_url, NULL, NULL);
         if (file_path && g_file_test(file_path, G_FILE_TEST_EXISTS)) {
             GError *error = NULL;
-            if (load_size > 0) {
-                pixbuf = gdk_pixbuf_new_from_file_at_scale(file_path, load_size, load_size, TRUE, &error);
-            } else {
-                pixbuf = gdk_pixbuf_new_from_file(file_path, &error);
-            }
+            pixbuf = gdk_pixbuf_new_from_file_at_scale(file_path, size, size, FALSE, &error);
             if (error) {
                 g_error_free(error);
                 pixbuf = NULL;
@@ -42,11 +33,7 @@ GtkWidget* load_album_art_to_container(const gchar *art_url, GtkWidget *containe
         GError *error = NULL;
         GInputStream *stream = G_INPUT_STREAM(g_file_read(file, NULL, &error));
         if (stream && !error) {
-            if (load_size > 0) {
-                pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, load_size, load_size, TRUE, NULL, &error);
-            } else {
-                pixbuf = gdk_pixbuf_new_from_stream(stream, NULL, &error);
-            }
+            pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, size, size, FALSE, NULL, &error);
             if (error) {
                 g_error_free(error);
                 pixbuf = NULL;
