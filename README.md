@@ -36,15 +36,20 @@ The visualizer uses PipeWire's native API directly (not the PulseAudio compatibi
 
 ## Screenshots
 
-### Collapsed State
-| Dark Theme | Light Theme |
-|:----------:|:-----------:|
-| <img src="screenshots/dark-collapsed.png" width="120"> | <img src="screenshots/light-collapsed.png" width="120"> |
-
-### Expanded State
-| Dark Theme | Light Theme |
-|:----------:|:-----------:|
-| <img src="screenshots/dark-expanded.png" width="200"> | <img src="screenshots/light-expanded.png" width="200"> |
+<table>
+<tr>
+<td align="center"><strong>Dark Collapsed</strong></td>
+<td align="center"><strong>Dark Expanded</strong></td>
+<td align="center"><strong>Light Collapsed</strong></td>
+<td align="center"><strong>Light Expanded</strong></td>
+</tr>
+<tr>
+<td><img src="screenshots/dark-collapsed.png" width="100"></td>
+<td><img src="screenshots/dark-expanded.png" width="160"></td>
+<td><img src="screenshots/light-collapsed.png" width="100"></td>
+<td><img src="screenshots/light-expanded.png" width="160"></td>
+</tr>
+</table>
 
 ## Features
 
