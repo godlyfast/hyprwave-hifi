@@ -4,7 +4,9 @@ A sleek music control overlay for Wayland with **per-application volume control*
 
 This is a HiFi-focused fork of [hyprwave](https://github.com/shantanubaddar/hyprwave) with enhanced audio integration for audiophile setups.
 
-![Expanded view with visualizer](screenshots/dark-expanded.png)
+<p align="center">
+  <img src="screenshots/dark-expanded.png" alt="Expanded view with visualizer" width="280">
+</p>
 
 ## What Makes This Fork Different
 
@@ -36,13 +38,13 @@ The visualizer uses PipeWire's native API directly (not the PulseAudio compatibi
 
 ### Collapsed State
 | Dark Theme | Light Theme |
-|------------|-------------|
-| ![Dark collapsed](screenshots/dark-collapsed.png) | ![Light collapsed](screenshots/light-collapsed.png) |
+|:----------:|:-----------:|
+| <img src="screenshots/dark-collapsed.png" width="120"> | <img src="screenshots/light-collapsed.png" width="120"> |
 
 ### Expanded State
 | Dark Theme | Light Theme |
-|------------|-------------|
-| ![Dark expanded](screenshots/dark-expanded.png) | ![Light expanded](screenshots/light-expanded.png) |
+|:----------:|:-----------:|
+| <img src="screenshots/dark-expanded.png" width="200"> | <img src="screenshots/light-expanded.png" width="200"> |
 
 ## Features
 
