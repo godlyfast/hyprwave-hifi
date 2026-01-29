@@ -685,6 +685,109 @@ Some themes I made!
 }
 ```
 
+## OCTANE
+
+For my GOAT Don Toliver, a special theme for his upcoming album, OCTANE.
+
+<img width="629" height="351" alt="image" src="https://github.com/user-attachments/assets/452c70b4-b2e3-436b-8b43-1c5aea147d25" />
+
+```css
+/* ========================================
+   HyprWave - OCTANE Theme
+   Pure black and white with bright white accents
+   Based on minimalist artistic aesthetic
+   ======================================== */
+
+:root {
+    /* Background Colors - Deep Black */
+    --bg-primary: rgba(10, 10, 10, 0.75);
+    --bg-secondary: rgba(15, 15, 15, 0.75);
+    --bg-album-cover: rgba(20, 20, 20, 0.85);
+    --bg-album-secondary: rgba(25, 25, 25, 0.85);
+    
+    /* Button Colors - Default (Prev/Next) - Soft White */
+    --btn-default: rgba(200, 200, 200, 0.85);
+    --btn-default-secondary: rgba(190, 190, 190, 0.85);
+    --btn-default-hover: rgba(220, 220, 220, 0.92);
+    --btn-default-hover-secondary: rgba(210, 210, 210, 0.92);
+    
+    /* Button Colors - Play/Pause - Bright White */
+    --btn-play: rgba(255, 255, 255, 0.95);
+    --btn-play-secondary: rgba(245, 245, 245, 0.95);
+    --btn-play-hover: rgba(255, 255, 255, 0.98);
+    --btn-play-hover-secondary: rgba(250, 250, 250, 0.98);
+    --btn-play-active: rgba(230, 230, 230, 0.95);
+    --btn-play-active-secondary: rgba(220, 220, 220, 0.95);
+    
+    /* Button Colors - Expand - Cool White */
+    --btn-expand: rgba(235, 235, 240, 0.95);
+    --btn-expand-secondary: rgba(225, 225, 235, 0.95);
+    --btn-expand-hover: rgba(245, 245, 250, 0.98);
+    --btn-expand-hover-secondary: rgba(240, 240, 245, 0.98);
+    --btn-expand-active: rgba(215, 215, 225, 0.95);
+    --btn-expand-active-secondary: rgba(205, 205, 220, 0.95);
+    
+    /* Progress Bar Colors */
+    --progress-bg: rgba(40, 40, 40, 0.25);
+    --progress-fill-start: rgba(255, 255, 255, 0.95);
+    --progress-fill-end: rgba(200, 200, 200, 0.95);
+    
+    /* Slider Handle Colors */
+    --handle-color: rgba(255, 255, 255, 0.98);
+    --handle-hover: rgba(255, 255, 255, 1.0);
+    --handle-border: rgba(230, 230, 230, 0.5);
+    --handle-shadow: rgba(255, 255, 255, 0.6);
+    
+    /* Text Colors - Bright white on pure black */
+    --text-primary: rgba(255, 255, 255, 0.95);
+    --text-secondary: rgba(230, 230, 230, 0.85);
+    --text-tertiary: rgba(200, 200, 200, 0.75);
+    --text-muted: rgba(160, 160, 160, 0.65);
+    
+    /* Border Colors */
+    --border-primary: rgba(80, 80, 80, 0.35);
+    --border-button: rgba(100, 100, 100, 0.3);
+    --border-button-hover: rgba(120, 120, 120, 0.45);
+    --border-play: rgba(255, 255, 255, 0.4);
+    --border-play-hover: rgba(255, 255, 255, 0.55);
+    --border-expand: rgba(235, 235, 240, 0.4);
+    --border-expand-hover: rgba(245, 245, 250, 0.55);
+    
+    /* Shadow Colors */
+    --shadow-default: rgba(0, 0, 0, 0.5);
+    --shadow-button: rgba(0, 0, 0, 0.4);
+    --shadow-play: rgba(255, 255, 255, 0.5);
+    --shadow-play-hover: rgba(255, 255, 255, 0.7);
+    --shadow-expand: rgba(235, 235, 240, 0.5);
+    --shadow-expand-hover: rgba(245, 245, 250, 0.7);
+    --shadow-focus: rgba(255, 255, 255, 0.7);
+    
+    /* Spacing & Sizes */
+    --border-radius-container: 100px;
+    --border-radius-section: 20px;
+    --border-radius-album: 16px;
+    --border-radius-button: 50%;
+    --border-radius-progress: 2px;
+    
+    --padding-container: 12px;
+    --padding-section: 16px;
+}
+
+/* Visualizer bars - pure white with strong glow */
+.visualizer-bar {
+    background: linear-gradient(180deg, 
+        rgba(255, 255, 255, 0.98),
+        rgba(230, 230, 230, 0.98));
+    border-radius: 0px;
+    transition: all 0.05s ease-out;
+    margin: 0px;
+    min-width: 1px;
+    min-height: 3px;
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.8),
+                0 0 8px rgba(255, 255, 255, 0.6);
+}
+```
+
 For people feeling like making their own themes and wanting to share it to the world, make sure to follow the above formatting of themes, and I will make sure to merge them!
 
 # Community Themes
