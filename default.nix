@@ -24,12 +24,19 @@ pkgs.stdenv.mkDerivation rec {
     "PREFIX=$(out)"
   ];
 
+  postPatch = ''
+    substituteInPlace paths.c \
+      --replace-fail '"/usr/share/hyprwave' '"${placeholder "out"}/share/hyprwave'
+  '';
+
   buildPhase = ''
     make
   '';
 
   installPhase = ''
-    make PREFIX=$out BINDIR=$out/bin DESTDIR=$out/bin DATADIR=$out/share install
+    mkdir -p $out/bin
+    mkdir -p $out/share/hyprwave
+    make PREFIX=$out BINDIR=$out/bin DESTDIR=$out/bin DATADIR=$out/share/hyprwave install
   '';
 
   meta = with pkgs.lib; {
