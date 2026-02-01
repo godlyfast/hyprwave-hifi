@@ -213,6 +213,8 @@ Limited Support:
 Edit `~/.config/hyprwave/config.conf`:
 
 ```conf
+# HyprWave Configuration File
+
 [General]
 # Edge to anchor HyprWave to
 # Options: right, left, top, bottom
@@ -222,10 +224,7 @@ edge = right
 margin = 10
 
 [Notifications]
-# Enable/disable notifications
 enabled = true
-
-# Show notification when song changes
 now_playing = true
 
 [Visualizer]
@@ -235,6 +234,13 @@ enabled = true
 # Idle timeout in seconds before visualizer appears
 # Set to 0 to disable auto-activation
 idle_timeout = 5
+
+[VerticalDisplay]
+enabled=true
+idle_timeout=5
+
+[MusicPlayer]
+preference = spotify,vlc
 ```
 
 **Layout Options:**
@@ -250,6 +256,13 @@ idle_timeout = 5
 **Visualizer Options:**
 - **`enabled = true`** - Enable audio visualizer (horizontal layouts only)
 - **`idle_timeout = 5`** - Seconds of inactivity before visualizer appears (0 to disable)
+
+**Dot Matrix Display Options:**
+- **`enabled = true`** - Enable audio visualizer (horizontal layouts only)
+- **`idle_timeout = 5`** - Seconds of inactivity before visualizer appears (0 to disable)
+
+**Music Player:**
+Still being developed, however, if you are a spotify user, don't worry about it. Your experience will be smooth all around.
 
 ### How Notifications Will Appear
 
