@@ -21,6 +21,10 @@ typedef struct {
     gboolean now_playing_enabled;
     gboolean visualizer_enabled;           // NEW
     gint visualizer_idle_timeout;          // NEW
+    gboolean vertical_display_enabled;
+    gint vertical_display_scroll_interval;
+    gchar **player_preference;             // NEW - Array of preferred players (e.g., ["spotify", "vlc"])
+    gint player_preference_count;          // NEW - Number of preferred players
 } LayoutConfig;
 
 typedef struct {
