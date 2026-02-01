@@ -1,8 +1,8 @@
-# hyprwave - v0.8 (latest release)
+# hyprwave - v0.9 (latest release)
 
 A sleek, modern music control bar for Wayland compositors (Hyprland, Niri, Sway, etc.) with MPRIS integration.
 
-Updates till now: Multi-Anchor support, Notifications, Music Controls, CSS Styling (control bar, expanded section and notifications), launching it as an application, huge UI bug fixing, ability to seek to different song parts via click or drag and click, volume controls, audio visualizer with idle mode animation. All visual bugs fixed.
+Updates till now: Multi-Anchor support, Notifications, Music Controls, CSS Styling (control bar, expanded section and notifications), launching it as an application, huge UI bug fixing, ability to seek to different song parts via click or drag and click, volume controls, audio visualizer with idle mode animation (for horizontal mode), 8-bit dot matrix info bar with idle mode animation (for vertical layouts). All visual bugs fixed.
 
 Built and primarily tested on Niri, for all Wayland compositors that support GTK4 and GTK4-layer-shell.
 
@@ -45,17 +45,23 @@ Check out THEMES.md to get the theme, and more!
 
 <img width="449" height="275" alt="image" src="https://github.com/user-attachments/assets/0b1bede5-102b-484b-ab23-d7a6f87fe8ac" />
 
-### Audio Visualizer (Idle Mode)
+### Audio Visualizer (Idle Mode - Horizontal)
 
-# Top Bar
+#### Top Bar
 <img width="361" height="296" alt="2026-01-25 17-19-32" src="https://github.com/user-attachments/assets/02424fab-6da7-40a3-bf45-a69595a299fb" />
 
-# Bottom Bar
+#### Bottom Bar
 <img width="633" height="746" alt="2026-01-25 17-09-42" src="https://github.com/user-attachments/assets/3e4228f3-6cda-4fd8-bbd6-426ab24df9cf" />
 
-# Transition from control bar to visualizer bar
+#### Transition from control bar to visualizer bar
 ![ezgif-10ec52723eb401f8](https://github.com/user-attachments/assets/f974ff9b-6271-4dcd-833c-230bb1dbf951)
 
+### Dot Matrix Display (Idle Mode - Vertical)
+
+
+https://github.com/user-attachments/assets/c4e84d3c-c93f-4bfe-b5e9-f7888b3b8b53
+
+<img width="1366" height="768" alt="2026-02-01 22-40-45" src="https://github.com/user-attachments/assets/b7bd1bc0-f56f-437c-b938-adc9210e3c83" />
 
 ### Layout Examples
 
@@ -101,6 +107,9 @@ Features:
 - Configurable idle timeout
 - Option to disable visualizer completely
 - Works only in horizontal layouts (top/bottom edges)
+
+### Dot Matrix Display 
+Ever felt nostalgic about old mp3 players? Revive it back with vertical mode, with a minimalistic idle mode, scrolling name of song and artist name, PAUSE animations and PLAY animations. Mouse hover restores it back to the control bar. Also, if you don't want the dot matrix font, you are free to replace it with any other font, just place it in the same place as the VT323 font where it is placed after install, and fix the size of font in style.css if needed. 
 
 ### Collapsed State
 
@@ -375,17 +384,15 @@ Config: `~/.config/hyprwave/config.conf`
 
 ## Roadmap
 
-### v0.8.0 (Current)
-- Audio visualizer with idle mode animation
-- Configurable visualizer settings
+### v0.9.0 (Current)
+- Dot Matrix Display (DMD) with idle mode animation
+- Configurable dot matrix display settings
 - Improved mouse interaction handling
 - Bug fixes and performance improvements
 
 ### v1.0.0 (Goals)
 - Theming system with pre-built themes
 - Custom dimensions and colors via config
-- Plugin system for extensibility
-- Additional visualizer modes (waveform, circular)
 
 ## Contributing
 
