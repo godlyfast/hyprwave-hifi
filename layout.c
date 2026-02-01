@@ -183,52 +183,8 @@ LayoutConfig* layout_load_config(void) {
             g_error_free(error);
         }
         
-        // Load MusicPlayer section - NEW
-        error = NULL;
-        gchar *player_pref_str = g_key_file_get_string(keyfile, "MusicPlayer", "preference", &error);
-        if (!error && player_pref_str && strlen(player_pref_str) > 0) {
-            // Split by comma and trim whitespace
-            gchar **raw_list = g_strsplit(player_pref_str, ",", -1);
-            gint raw_count = g_strv_length(raw_list);
-            
-            // Count non-empty entries
-            gint valid_count = 0;
-            for (gint i = 0; i < raw_count; i++) {
-                gchar *trimmed = g_strstrip(g_strdup(raw_list[i]));
-                if (strlen(trimmed) > 0) {
-                    valid_count++;
-                }
-                g_free(trimmed);
-            }
-            
-            // Allocate array for valid entries
-            if (valid_count > 0) {
-                config->player_preference = g_new0(gchar*, valid_count + 1);  // NULL-terminated
-                config->player_preference_count = valid_count;
-                
-                gint idx = 0;
-                for (gint i = 0; i < raw_count; i++) {
-                    gchar *trimmed = g_strstrip(g_strdup(raw_list[i]));
-                    if (strlen(trimmed) > 0) {
-                        config->player_preference[idx++] = trimmed;  // Transfer ownership
-                    } else {
-                        g_free(trimmed);
-                    }
-                }
-                
-                g_print("Player preference: ");
-                for (gint i = 0; i < config->player_preference_count; i++) {
-                    g_print("%s%s", config->player_preference[i], 
-                           i < config->player_preference_count - 1 ? ", " : "");
-                }
-                g_print("\n");
-            }
-            
-            g_strfreev(raw_list);
-            g_free(player_pref_str);
-        } else if (error) {
-            g_error_free(error);
-        }
+        // MusicPlayer section: preference config removed in favor of file-based persistence
+        // Last used player is saved to ~/.config/hyprwave/preferred_player
     }
     config->is_vertical = (config->edge == EDGE_RIGHT || config->edge == EDGE_LEFT);
 

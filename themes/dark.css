@@ -121,3 +121,9 @@
 .play-button.playing {
     animation: playing-breathe-dark 4s ease-in-out infinite;
 }
+
+/* Vertical display - light text for dark theme */
+.vertical-display-label {
+    color: var(--text-primary);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}

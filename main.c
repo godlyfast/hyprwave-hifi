@@ -678,9 +678,9 @@ static gboolean delayed_control_bar_resize_vertical(gpointer user_data) {
 // Vertical display idle mode functions
 static gboolean enter_vertical_idle_mode(gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    
+
     // Don't enter if not visible, expanded, or in horizontal layout
-    if (state->is_idle_mode || !state->is_visible || state->is_expanded || 
+    if (state->is_idle_mode || !state->is_visible || state->is_expanded ||
         !state->layout->is_vertical || !state->vertical_display) {
         return G_SOURCE_REMOVE;
     }
@@ -1233,7 +1233,7 @@ static void connect_to_player(AppState *state, const gchar *bus_name) {
 }
 
 static void find_active_player(AppState *state) {
-    // Hi-Fi: Use multi-player logic with preference persistence
+    // Hi-Fi: Use multi-player logic with persistence
     load_available_players(state);
 
     if (state->player_count == 0) {
@@ -1241,37 +1241,21 @@ static void find_active_player(AppState *state) {
         return;
     }
 
-    // Try config-based preferences first
-    if (state->layout->player_preference && state->layout->player_preference_count > 0) {
-        g_print("Searching for config-preferred players...\n");
-        for (gint i = 0; i < state->layout->player_preference_count; i++) {
-            const gchar *pref = state->layout->player_preference[i];
-            for (int j = 0; state->players[j]; j++) {
-                const gchar *player_name = state->players[j] + strlen("org.mpris.MediaPlayer2.");
-                if (g_ascii_strcasecmp(player_name, pref) == 0 ||
-                    g_str_has_prefix(player_name, pref)) {
-                    g_print("✓ Found config-preferred player: %s\n", state->players[j]);
-                    switch_to_player(state, state->players[j]);
-                    return;
-                }
-            }
-        }
-    }
-
-    // Try to restore last-used player from persistent file
-    gchar *preferred = load_preferred_player();
-    if (preferred) {
+    // First: Try to restore last-used player from persistent file
+    gchar *persistent = load_preferred_player();
+    if (persistent) {
         for (int i = 0; state->players[i]; i++) {
-            if (g_strcmp0(state->players[i], preferred) == 0) {
-                switch_to_player(state, preferred);
-                g_free(preferred);
+            if (g_strcmp0(state->players[i], persistent) == 0) {
+                g_print("✓ Restored last player: %s\n", persistent);
+                switch_to_player(state, persistent);
+                g_free(persistent);
                 return;
             }
         }
-        g_free(preferred);
+        g_free(persistent);
     }
 
-    // Otherwise connect to first available player
+    // Second: Connect to first available player
     if (state->players[0]) {
         switch_to_player(state, state->players[0]);
     }
@@ -1468,7 +1452,11 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->volume = NULL;
     state->visualizer = NULL;
     state->visualizer_box = NULL;
-    
+    state->button_fade_opacity = 1.0;  // Buttons fully visible initially
+    state->is_idle_mode = FALSE;
+    state->idle_timer = 0;
+    state->morph_timer = 0;
+
     // Create window FIRST
     GtkWidget *window = gtk_application_window_new(app);
     state->window = window;
@@ -1657,8 +1645,26 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->control_bar_container = control_bar;
 
     // Initialize vertical display for vertical layouts
+    GtkWidget *final_control_widget = control_bar;
     if (state->layout->is_vertical && state->layout->vertical_display_enabled) {
         state->vertical_display = vertical_display_init();
+        if (state->vertical_display) {
+            // Create overlay: control bar as base, vertical display on top
+            GtkWidget *overlay = gtk_overlay_new();
+            gtk_overlay_set_child(GTK_OVERLAY(overlay), control_bar);
+
+            // Vertical display must pass through clicks
+            gtk_widget_set_can_target(state->vertical_display->container, FALSE);
+
+            gtk_overlay_add_overlay(GTK_OVERLAY(overlay), state->vertical_display->container);
+
+            // Start hidden and transparent
+            gtk_widget_set_visible(state->vertical_display->container, TRUE);
+            gtk_widget_set_opacity(state->vertical_display->container, 0.0);
+
+            final_control_widget = overlay;
+            g_print("✓ Vertical display overlay created\n");
+        }
     } else {
         state->vertical_display = NULL;
     }
@@ -1688,9 +1694,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
         state->visualizer = NULL;
     }
     
-    // Create main container
+    // Create main container (use overlay if vertical display enabled)
     GtkWidget *main_container = layout_create_main_container(state->layout,
-        control_bar, revealer);
+        final_control_widget, revealer);
 
     // ========================================
     // WINDOW REVEALER
@@ -1806,6 +1812,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     if (state->layout->is_vertical && state->vertical_display &&
         state->layout->vertical_display_enabled &&
         state->layout->vertical_display_scroll_interval > 0) {
+        g_print("✓ Starting vertical idle timer (%d seconds)\n", state->layout->vertical_display_scroll_interval);
         reset_idle_timer(state);
     } else if (!state->layout->is_vertical && state->visualizer &&
                state->layout->visualizer_enabled &&
