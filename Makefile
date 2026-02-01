@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = `pkg-config --cflags gtk4 gtk4-layer-shell-0`
 LIBS = `pkg-config --libs gtk4 gtk4-layer-shell-0 gio-2.0 gdk-pixbuf-2.0 libpulse` -lm
 TARGET = hyprwave
-SRC = main.c layout.c paths.c notification.c art.c volume.c visualizer.c
+SRC = main.c layout.c paths.c notification.c art.c volume.c visualizer.c vertical_display.c
 
 # Installation paths
 PREFIX ?= $(HOME)/.local
@@ -32,6 +32,9 @@ install: $(TARGET)
 	install -m644 icons/arrow-down.svg $(DATADIR)/icons/
 	install -m644 icons/arrow-left.svg $(DATADIR)/icons/
 	install -m644 icons/arrow-right.svg $(DATADIR)/icons/
+	mkdir -p $(HOME)/.local/share/fonts/hyprwave
+	cp fonts/VT323-Regular.ttf $(HOME)/.local/share/fonts/hyprwave/
+	fc-cache -f $(HOME)/.local/share/fonts/hyprwave
 	@echo "Installation complete!"
 	@echo "Files installed to: $(DATADIR)"
 	@echo "Binary installed to: $(BINDIR)/$(TARGET)"
