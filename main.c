@@ -10,6 +10,7 @@
 #include "art.h"
 #include "volume.h"
 #include "visualizer.h"
+#include "vertical_display.h"
 
 typedef struct {
     GtkWidget *window;
@@ -39,17 +40,23 @@ typedef struct {
     gchar *pending_title;
     gchar *pending_artist;
     gchar *pending_art_url;
-    GtkWidget *control_bar_container;  // Store reference to control bar
-    GtkWidget *prev_btn;               // Store button references
+    GtkWidget *control_bar_container;
+    GtkWidget *prev_btn;
     GtkWidget *play_btn;
     GtkWidget *next_btn;
     GtkWidget *expand_btn;
     
-    VisualizerState *visualizer;       // Visualizer state
-    guint idle_timer;                  // Idle detection timer
-    gboolean is_idle_mode;             // Are we in visualizer mode?
-    guint morph_timer;                 // Button fade animation timer
-    gdouble button_fade_opacity;  
+    VisualizerState *visualizer;       // For horizontal layouts
+    VerticalDisplayState *vertical_display;  // NEW - For vertical layouts
+    guint idle_timer;
+    gboolean is_idle_mode;
+    guint morph_timer;
+    gdouble button_fade_opacity;
+    
+    // Player monitoring - NEW
+    guint dbus_watch_id;               // D-Bus name watcher
+    guint reconnect_timer;             // Timer for reconnection attempts
+    
 } AppState;
 
 static void update_position(AppState *state);
@@ -62,6 +69,10 @@ static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_propertie
 static void exit_idle_mode(AppState *state);
 static void reset_idle_timer(AppState *state);
 static gboolean enter_idle_mode(gpointer user_data);
+static gboolean delayed_control_bar_resize(gpointer user_data);
+static gboolean enter_vertical_idle_mode(gpointer user_data);
+static void exit_vertical_idle_mode(AppState *state);
+static void find_active_player(AppState *state);
 
 static AppState *global_state = NULL;
 
@@ -79,6 +90,15 @@ static void on_revealer_transition_done(GObject *revealer_obj, GParamSpec *pspec
     }
 }
 
+static gboolean delayed_visualizer_show(gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    
+    // NOW show visualizer after bar has shrunk
+    visualizer_show(state->visualizer);
+    
+    return G_SOURCE_REMOVE;
+}
+
 static void on_window_hide_complete(GObject *revealer, GParamSpec *pspec, gpointer user_data) {
     AppState *state = (AppState *)user_data;
     if (!gtk_revealer_get_child_revealed(GTK_REVEALER(state->window_revealer))) {
@@ -91,10 +111,14 @@ static void handle_sigusr1(int sig) {
     global_state->is_visible = !global_state->is_visible;
     
     if (!global_state->is_visible) {
-        // HIDE: Just hide visualizer, don't stop audio capture
-        if (global_state->is_idle_mode && global_state->visualizer) {
-            visualizer_hide(global_state->visualizer);
-            // DON'T call visualizer_stop() - keep audio running in background
+        // HIDE
+        if (global_state->is_idle_mode) {
+            if (global_state->visualizer) {
+                visualizer_hide(global_state->visualizer);
+            }
+            if (global_state->vertical_display) {
+                vertical_display_hide(global_state->vertical_display);
+            }
         }
         
         // Cancel idle timer
@@ -113,28 +137,41 @@ static void handle_sigusr1(int sig) {
         gtk_widget_set_visible(global_state->window, TRUE);
         gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), TRUE);
         
-        // If we were in idle mode before hiding, restore visualizer
-        if (global_state->is_idle_mode && global_state->visualizer) {
-            visualizer_show(global_state->visualizer);
+        // Restore idle mode display if we were in it
+        if (global_state->is_idle_mode) {
+            if (global_state->visualizer) {
+                visualizer_show(global_state->visualizer);
+            }
+            if (global_state->vertical_display) {
+                vertical_display_show(global_state->vertical_display);
+            }
         }
         
-        // Restart idle timer when showing (only if not expanded and not in idle mode)
-// Restart idle timer when showing (only if not expanded and not in idle mode)
-        if (!global_state->is_expanded && !global_state->layout->is_vertical && 
-            global_state->visualizer && !global_state->is_idle_mode &&
-            global_state->layout->visualizer_enabled && 
-            global_state->layout->visualizer_idle_timeout > 0) {
-            global_state->idle_timer = g_timeout_add_seconds(global_state->layout->visualizer_idle_timeout, 
-                                                              enter_idle_mode, global_state);
+        // Restart idle timer based on layout
+        if (!global_state->is_expanded && !global_state->is_idle_mode) {
+            if (global_state->layout->is_vertical && global_state->vertical_display &&
+                global_state->layout->vertical_display_enabled &&
+                global_state->layout->vertical_display_scroll_interval > 0) {
+                global_state->idle_timer = g_timeout_add_seconds(
+                    global_state->layout->vertical_display_scroll_interval, 
+                    enter_vertical_idle_mode, global_state);
+            } else if (!global_state->layout->is_vertical && global_state->visualizer &&
+                       global_state->layout->visualizer_enabled && 
+                       global_state->layout->visualizer_idle_timeout > 0) {
+                global_state->idle_timer = g_timeout_add_seconds(
+                    global_state->layout->visualizer_idle_timeout, 
+                    enter_idle_mode, global_state);
+            }
         }
     }
 }
+
 
 static void handle_sigusr2(int sig) {
     if (!global_state) return;
     if (!global_state->is_visible) return;
     
-    // If in idle mode, allow expansion but keep visualizer running
+    // If in idle mode, allow expansion but keep display running
     if (global_state->is_idle_mode) {
         // Toggle expansion
         global_state->is_expanded = !global_state->is_expanded;
@@ -151,7 +188,6 @@ static void handle_sigusr2(int sig) {
                 global_state->idle_timer = 0;
             }
         }
-        // Note: We don't hide/show visualizer anymore - it just keeps running
         
         // Update expand icon and revealer
         const gchar *icon_name = layout_get_expand_icon(global_state->layout, global_state->is_expanded);
@@ -230,45 +266,34 @@ static gboolean delayed_control_bar_resize(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
-// REPLACE enter_idle_mode with this:
 static gboolean enter_idle_mode(gpointer user_data) {
     AppState *state = (AppState *)user_data;
     
-    // Don't enter idle mode if not visible, expanded, or in vertical layout
-    if (state->is_idle_mode || !state->is_visible || state->is_expanded || 
-        state->layout->is_vertical || !state->visualizer) {
+    // FIXED: Use state->layout (not state->config)
+    if (state->is_idle_mode || !state->visualizer || !state->layout->visualizer_enabled) {
+        state->idle_timer = 0;
         return G_SOURCE_REMOVE;
     }
     
-    g_print("→ Entering idle mode - morphing to visualizer\n");
     state->is_idle_mode = TRUE;
+    g_print("→ Entering horizontal idle mode - showing visualizer\n");
     
-    // Hide volume if showing
-    if (state->volume && state->volume->is_showing) {
-        volume_hide(state->volume);
-    }
-    
-    // Debug: Print current size
-    GtkAllocation alloc;
-    gtk_widget_get_allocation(state->control_bar_container, &alloc);
-    g_print("  Before morph: %dx%d\n", alloc.width, alloc.height);
-    
-    // Start button fade-out animation FIRST
-    // The animation will hide buttons when opacity reaches 0
+    // Hide buttons with fade animation
     if (state->morph_timer > 0) {
         g_source_remove(state->morph_timer);
     }
-    state->morph_timer = g_timeout_add(16, animate_button_fade, state);  // ~60fps
+    state->morph_timer = g_timeout_add(16, animate_button_fade, state);
     
-    // Start audio capture and show visualizer
+    // Start audio capture
     if (!state->visualizer->is_running) {
         visualizer_start(state->visualizer);
     }
-    visualizer_show(state->visualizer);
     
-    // Resize AFTER buttons fade (350ms delay)
-    // This lets buttons hide first, then bar can shrink
+    // Step 1: Resize bar after buttons fade (350ms)
     g_timeout_add(350, delayed_control_bar_resize, state);
+    
+    // Step 2: Show visualizer AFTER bar finishes resizing (700ms)
+    g_timeout_add(700, delayed_visualizer_show, state);
     
     state->idle_timer = 0;
     return G_SOURCE_REMOVE;
@@ -312,6 +337,77 @@ static void exit_idle_mode(AppState *state) {
     }
 }
 
+static gboolean delayed_control_bar_resize_vertical(gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    // Make it slimmer (from 70x240 to 32x280)
+    gtk_widget_set_size_request(state->control_bar_container, 32, 280);
+    gtk_widget_queue_resize(state->control_bar_container);
+    g_print("  Vertical bar resized to: 32x280 (slim mode)\n");
+    return G_SOURCE_REMOVE;
+}
+
+// Vertical display idle mode functions
+static gboolean enter_vertical_idle_mode(gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    
+    // Don't enter if not visible, expanded, or in horizontal layout
+    if (state->is_idle_mode || !state->is_visible || state->is_expanded || 
+        !state->layout->is_vertical || !state->vertical_display) {
+        return G_SOURCE_REMOVE;
+    }
+    
+    g_print("→ Entering vertical idle mode - showing track display\n");
+    state->is_idle_mode = TRUE;
+    
+    // Hide volume if showing
+    if (state->volume && state->volume->is_showing) {
+        volume_hide(state->volume);
+    }
+    
+    // Start button fade-out animation
+    if (state->morph_timer > 0) {
+        g_source_remove(state->morph_timer);
+    }
+    state->morph_timer = g_timeout_add(16, animate_button_fade, state);
+    
+    // Show vertical display
+    vertical_display_show(state->vertical_display);
+    
+    // Resize control bar to slim version (same as horizontal idle mode)
+    g_timeout_add(350, delayed_control_bar_resize_vertical, state);
+    
+    state->idle_timer = 0;
+    return G_SOURCE_REMOVE;
+}
+
+static void exit_vertical_idle_mode(AppState *state) {
+    if (!state->is_idle_mode || !state->vertical_display) return;
+    
+    g_print("← Exiting vertical idle mode - restoring buttons\n");
+    state->is_idle_mode = FALSE;
+    
+    // Restore control bar size
+    gtk_widget_set_size_request(state->control_bar_container, 70, 240);
+    gtk_widget_queue_resize(state->control_bar_container);
+    
+    // Hide vertical display
+    vertical_display_hide(state->vertical_display);
+    
+    // Start button fade-in animation
+    if (state->morph_timer > 0) {
+        g_source_remove(state->morph_timer);
+    }
+    state->morph_timer = g_timeout_add(16, animate_button_fade, state);
+    
+    // Restart idle timer
+    if (state->is_visible && !state->is_expanded && state->layout->is_vertical && 
+        state->vertical_display && state->layout->vertical_display_enabled && 
+        state->layout->vertical_display_scroll_interval > 0) {
+        state->idle_timer = g_timeout_add_seconds(state->layout->vertical_display_scroll_interval, 
+                                                   enter_vertical_idle_mode, state);
+    }
+}
+
 static void reset_idle_timer(AppState *state) {
     // Cancel existing timer
     if (state->idle_timer > 0) {
@@ -320,18 +416,30 @@ static void reset_idle_timer(AppState *state) {
     }
     
     // Exit idle mode if currently in it (restore buttons)
-    // This function is only called by on_mouse_motion
     if (state->is_idle_mode) {
-        exit_idle_mode(state);
-        return; // exit_idle_mode will restart the timer
+        if (state->layout->is_vertical && state->vertical_display) {
+            exit_vertical_idle_mode(state);
+        } else {
+            exit_idle_mode(state);
+        }
+        return;
     }
     
-    // Start new idle timer (only if visualizer enabled, timeout > 0, visible, not expanded, horizontal)
-    if (state->is_visible && !state->is_expanded && 
-        !state->layout->is_vertical && state->visualizer &&
-        state->layout->visualizer_enabled && state->layout->visualizer_idle_timeout > 0) {
-        state->idle_timer = g_timeout_add_seconds(state->layout->visualizer_idle_timeout, 
-                                                   enter_idle_mode, state);
+    // Start new idle timer based on layout
+    if (state->is_visible && !state->is_expanded) {
+        if (state->layout->is_vertical && state->vertical_display && 
+            state->layout->vertical_display_enabled && 
+            state->layout->vertical_display_scroll_interval > 0) {
+            // Vertical: configurable idle timeout
+            state->idle_timer = g_timeout_add_seconds(state->layout->vertical_display_scroll_interval, 
+                                                       enter_vertical_idle_mode, state);
+        } else if (!state->layout->is_vertical && state->visualizer &&
+                   state->layout->visualizer_enabled && 
+                   state->layout->visualizer_idle_timeout > 0) {
+            // Horizontal: configurable timeout
+            state->idle_timer = g_timeout_add_seconds(state->layout->visualizer_idle_timeout, 
+                                                       enter_idle_mode, state);
+        }
     }
 }
 
@@ -513,6 +621,10 @@ static void on_position_received(GObject *source_object, GAsyncResult *res, gpoi
     g_signal_handlers_block_by_func(state->progress_bar, on_change_value, state);
     gtk_range_set_value(GTK_RANGE(state->progress_bar), fraction);
     g_signal_handlers_unblock_by_func(state->progress_bar, on_change_value, state);
+    
+            if (state->vertical_display) {
+        vertical_display_update_position(state->vertical_display, position, length);
+    }
 }
 
 static void update_position(AppState *state) {
@@ -523,6 +635,7 @@ static void update_position(AppState *state) {
         "org.freedesktop.DBus.Properties.Get",
         g_variant_new("(ss)", "org.mpris.MediaPlayer2.Player", "Position"),
         G_DBUS_CALL_FLAGS_NONE, -1, NULL, on_position_received, state);
+
 }
 
 static gint notification_retry_count = 0;
@@ -553,6 +666,8 @@ static gboolean show_pending_notification(gpointer user_data) {
     state->pending_art_url = NULL;
     state->notification_timer = 0;
     notification_retry_count = 0;
+    
+    
     return G_SOURCE_REMOVE;
 }
 
@@ -661,6 +776,11 @@ static void update_metadata(AppState *state) {
             g_error_free(error);
         }
     }
+    
+        if (state->vertical_display && title && artist) {
+        vertical_display_update_track(state->vertical_display, title, artist);
+    }
+    
 
     g_free(title);
     g_free(artist);
@@ -668,6 +788,7 @@ static void update_metadata(AppState *state) {
     g_free(track_id);
     g_variant_unref(metadata);
     update_position(state);
+    
 }
 
 static void update_playback_status(AppState *state) {
@@ -675,10 +796,21 @@ static void update_playback_status(AppState *state) {
     GVariant *status_var = g_dbus_proxy_get_cached_property(state->mpris_proxy, "PlaybackStatus");
     if (status_var) {
         const gchar *status = g_variant_get_string(status_var, NULL);
+        gboolean was_playing = state->is_playing;
         state->is_playing = g_strcmp0(status, "Playing") == 0;
+        
         gchar *icon_path = get_icon_path(state->is_playing ? "pause.svg" : "play.svg");
         gtk_image_set_from_file(GTK_IMAGE(state->play_icon), icon_path);
         free_path(icon_path);
+        
+        // UPDATE VERTICAL DISPLAY
+        if (state->vertical_display) {
+            // Only notify if status changed
+            if (was_playing != state->is_playing) {
+                vertical_display_set_paused(state->vertical_display, !state->is_playing);
+            }
+        }
+        
         g_variant_unref(status_var);
     }
 }
@@ -688,6 +820,55 @@ static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_propertie
     AppState *state = (AppState *)user_data;
     update_metadata(state);
     update_playback_status(state);
+}
+
+// Callback when player name appears/disappears on D-Bus
+static void on_player_name_changed(GDBusConnection *connection,
+                                    const gchar *sender_name,
+                                    const gchar *object_path,
+                                    const gchar *interface_name,
+                                    const gchar *signal_name,
+                                    GVariant *parameters,
+                                    gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    
+    const gchar *name;
+    const gchar *old_owner;
+    const gchar *new_owner;
+    g_variant_get(parameters, "(&s&s&s)", &name, &old_owner, &new_owner);
+    
+    // Check if this is our current player
+    if (state->current_player && g_strcmp0(name, state->current_player) == 0) {
+        if (strlen(new_owner) == 0) {
+            // Our player disappeared!
+            g_print("⚠ Player disappeared: %s\n", state->current_player);
+            
+            if (state->mpris_proxy) {
+                g_object_unref(state->mpris_proxy);
+                state->mpris_proxy = NULL;
+            }
+            g_free(state->current_player);
+            state->current_player = NULL;
+            
+            // Clear UI
+            gtk_label_set_text(GTK_LABEL(state->track_title), "No Player");
+            gtk_label_set_text(GTK_LABEL(state->artist_label), "Waiting for music...");
+            gtk_label_set_text(GTK_LABEL(state->source_label), "");
+            clear_album_art_container(state->album_cover);
+            
+            // Try to reconnect after 2 seconds
+            if (state->reconnect_timer > 0) {
+                g_source_remove(state->reconnect_timer);
+            }
+            state->reconnect_timer = g_timeout_add_seconds(2, (GSourceFunc)find_active_player, state);
+        }
+    } else if (!state->current_player && g_str_has_prefix(name, "org.mpris.MediaPlayer2.")) {
+        // A new player appeared and we're not connected to anything
+        if (strlen(new_owner) > 0) {
+            g_print("✓ New player detected: %s\n", name);
+            find_active_player(state);
+        }
+    }
 }
 
 static void connect_to_player(AppState *state, const gchar *bus_name) {
@@ -737,17 +918,71 @@ static void find_active_player(AppState *state) {
         return;
     }
 
+    // Get list of all available MPRIS players
     GVariantIter *iter;
     g_variant_get(result, "(as)", &iter);
+    
+    // Build array of available players
+    GPtrArray *available_players = g_ptr_array_new_with_free_func(g_free);
     const gchar *name;
     while (g_variant_iter_loop(iter, "&s", &name)) {
         if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.")) {
-            connect_to_player(state, name);
-            break;
+            // Extract player name (e.g., "spotify" from "org.mpris.MediaPlayer2.spotify")
+            const gchar *player_name = name + strlen("org.mpris.MediaPlayer2.");
+            g_ptr_array_add(available_players, g_strdup(name));  // Store full bus name
         }
     }
     g_variant_iter_free(iter);
     g_variant_unref(result);
+    
+    if (available_players->len == 0) {
+        g_ptr_array_free(available_players, TRUE);
+        g_object_unref(dbus_proxy);
+        g_print("No MPRIS players found\n");
+        return;
+    }
+    
+    const gchar *selected_player = NULL;
+    
+    // If we have preferences, search in order
+    if (state->layout->player_preference && state->layout->player_preference_count > 0) {
+        g_print("Searching for preferred players...\n");
+        
+        for (gint i = 0; i < state->layout->player_preference_count; i++) {
+            const gchar *pref = state->layout->player_preference[i];
+            g_print("  Looking for: %s\n", pref);
+            
+            // Check each available player
+            for (guint j = 0; j < available_players->len; j++) {
+                const gchar *bus_name = g_ptr_array_index(available_players, j);
+                const gchar *player_name = bus_name + strlen("org.mpris.MediaPlayer2.");
+                
+                // Match preference (case-insensitive, partial match)
+                if (g_ascii_strcasecmp(player_name, pref) == 0 ||
+                    g_str_has_prefix(player_name, pref)) {
+                    selected_player = bus_name;
+                    g_print("✓ Found preferred player: %s (%s)\n", pref, bus_name);
+                    break;
+                }
+            }
+            
+            if (selected_player) break;  // Found a match, stop searching
+        }
+        
+        if (!selected_player) {
+            g_print("⚠ No preferred players found, skipping connection\n");
+        }
+    } else {
+        // No preference - connect to first available player (old behavior)
+        selected_player = g_ptr_array_index(available_players, 0);
+        g_print("No player preference set, connecting to: %s\n", selected_player);
+    }
+    
+    if (selected_player) {
+        connect_to_player(state, selected_player);
+    }
+    
+    g_ptr_array_free(available_players, TRUE);
     g_object_unref(dbus_proxy);
 }
 
@@ -761,17 +996,29 @@ static void on_play_clicked(GtkButton *button, gpointer user_data) {
                       G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
 }
 
-static void on_prev_clicked(GtkButton *button, gpointer user_data) {
-    AppState *state = (AppState *)user_data;
-    if (!state->mpris_proxy) return;
-    g_dbus_proxy_call(state->mpris_proxy, "Previous", NULL,
-                      G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
-}
-
 static void on_next_clicked(GtkButton *button, gpointer user_data) {
     AppState *state = (AppState *)user_data;
     if (!state->mpris_proxy) return;
+    
+    // Notify vertical display about skip
+    if (state->vertical_display) {
+        vertical_display_notify_skip(state->vertical_display);
+    }
+    
     g_dbus_proxy_call(state->mpris_proxy, "Next", NULL,
+                      G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
+}
+
+static void on_prev_clicked(GtkButton *button, gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    if (!state->mpris_proxy) return;
+    
+    // Notify vertical display about skip
+    if (state->vertical_display) {
+        vertical_display_notify_skip(state->vertical_display);
+    }
+    
+    g_dbus_proxy_call(state->mpris_proxy, "Previous", NULL,
                       G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
 }
 
@@ -863,8 +1110,8 @@ static void load_css() {
 
     if (g_file_load_contents(base_file, NULL, &base_contents, &base_length, NULL, &base_error)) {
         gtk_css_provider_load_from_string(provider, base_contents);
-        gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-            GTK_STYLE_PROVIDER(provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+gtk_style_context_add_provider_for_display(gdk_display_get_default(),
+    GTK_STYLE_PROVIDER(provider), GTK_STYLE_PROVIDER_PRIORITY_USER);
         g_free(base_contents);
     } else {
         g_warning("Failed to load CSS: %s", base_error ? base_error->message : "Unknown");
@@ -1070,17 +1317,40 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // ========================================
     GtkWidget *final_control_widget;  // What goes into main_container
     
-    if (state->layout->is_vertical) {
-        // Vertical: No visualizer, just buttons
-        state->visualizer = NULL;
-        
-        final_control_widget = layout_create_control_bar(state->layout, 
-            &prev_btn, &play_btn, &next_btn, &expand_btn);
-        
-        // Store reference to the control bar itself
-        state->control_bar_container = final_control_widget;
-        
+if (state->layout->is_vertical) {
+    // Vertical: Create vertical display if enabled
+    if (state->layout->vertical_display_enabled) {
+        state->vertical_display = vertical_display_init();
     } else {
+        state->vertical_display = NULL;
+    }
+    state->visualizer = NULL;
+    
+    GtkWidget *control_bar = layout_create_control_bar(state->layout, 
+        &prev_btn, &play_btn, &next_btn, &expand_btn);
+    
+    state->control_bar_container = control_bar;
+    
+    if (state->vertical_display) {
+        // Create overlay: control bar as base, vertical display on top
+        GtkWidget *overlay = gtk_overlay_new();
+        gtk_overlay_set_child(GTK_OVERLAY(overlay), control_bar);
+        
+        // Vertical display must pass through clicks
+        gtk_widget_set_can_target(state->vertical_display->container, FALSE);
+        
+        gtk_overlay_add_overlay(GTK_OVERLAY(overlay), state->vertical_display->container);
+        
+        // Start hidden and transparent
+        gtk_widget_set_visible(state->vertical_display->container, TRUE);
+        gtk_widget_set_opacity(state->vertical_display->container, 0.0);
+        
+        final_control_widget = overlay;
+    } else {
+        final_control_widget = control_bar;
+      }
+    
+}  else {
         // Horizontal: Create visualizer if enabled, otherwise just buttons
         if (state->layout->visualizer_enabled) {
             state->visualizer = visualizer_init();
@@ -1183,29 +1453,54 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_revealer_set_transition_duration(GTK_REVEALER(window_revealer), window_duration);
     gtk_revealer_set_transition_duration(GTK_REVEALER(revealer), internal_duration);
     
- if (!state->layout->is_vertical && state->visualizer) {
-    GtkEventController *motion_controller = gtk_event_controller_motion_new();
-    g_signal_connect(motion_controller, "motion", G_CALLBACK(on_mouse_motion), state);
-    
-    // CRITICAL: Attach to control_bar_container, NOT window!
-    // This way motion only triggers when hovering over the visualizer/control bar
-    gtk_widget_add_controller(state->control_bar_container, motion_controller);
-    
-    g_print("✓ Mouse motion detector attached to control bar only\n");
-}
-    // ========================================
-    // FINALIZE
-    // ========================================
+// Around line 950, replace the motion controller setup with:
+
+    if (state->layout->is_vertical && state->vertical_display) {
+        GtkEventController *motion_controller = gtk_event_controller_motion_new();
+        g_signal_connect(motion_controller, "motion", G_CALLBACK(on_mouse_motion), state);
+        gtk_widget_add_controller(state->control_bar_container, motion_controller);
+        g_print("✓ Mouse motion detector attached to vertical control bar\n");
+    } else if (!state->layout->is_vertical && state->visualizer) {
+        GtkEventController *motion_controller = gtk_event_controller_motion_new();
+        g_signal_connect(motion_controller, "motion", G_CALLBACK(on_mouse_motion), state);
+        gtk_widget_add_controller(state->control_bar_container, motion_controller);
+        g_print("✓ Mouse motion detector attached to horizontal control bar\n");
+    }
+
+
     global_state = state;
     signal(SIGUSR1, handle_sigusr1);
     signal(SIGUSR2, handle_sigusr2);
 
+    // Setup D-Bus name watcher to monitor player appearance/disappearance
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+    if (bus) {
+        state->dbus_watch_id = g_dbus_connection_signal_subscribe(
+            bus,
+            "org.freedesktop.DBus",
+            "org.freedesktop.DBus",
+            "NameOwnerChanged",
+            "/org/freedesktop/DBus",
+            NULL,
+            G_DBUS_SIGNAL_FLAGS_NONE,
+            on_player_name_changed,
+            state,
+            NULL
+        );
+        g_print("✓ D-Bus name watcher enabled\n");
+    }
+
     find_active_player(state);
     state->update_timer = g_timeout_add_seconds(1, update_position_tick, state);
     
-    // Start idle timer (only for horizontal layout with visualizer enabled and timeout > 0)
-    if (!state->layout->is_vertical && state->visualizer && 
-        state->layout->visualizer_enabled && state->layout->visualizer_idle_timeout > 0) {
+    // Start idle timer based on layout
+    if (state->layout->is_vertical && state->vertical_display && 
+        state->layout->vertical_display_enabled &&
+        state->layout->vertical_display_scroll_interval > 0) {
+        reset_idle_timer(state);
+    } else if (!state->layout->is_vertical && state->visualizer && 
+               state->layout->visualizer_enabled && 
+               state->layout->visualizer_idle_timeout > 0) {
         reset_idle_timer(state);
     }
 }
