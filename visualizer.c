@@ -650,8 +650,15 @@ void visualizer_start(VisualizerState *state) {
     pw_stream_add_listener(state->pw_stream, &state->stream_listener,
                            &stream_events, state);
 
-    // Don't connect immediately - wait for registry to find the target player's node
-    // connect_to_target() will be called from on_registry_global() when matched
+    // If target serial is known but node not yet matched, search the cache
+    // (node may have been enumerated by registry before target was set)
+    if (state->target_serial > 0 && !state->target_found) {
+        search_cached_nodes_for_target(state);
+    }
+    // If target was already found, connect now
+    if (state->target_found) {
+        connect_to_target(state);
+    }
 
     pw_thread_loop_unlock(state->pw_loop);
 
@@ -691,7 +698,7 @@ void visualizer_stop(VisualizerState *state) {
     g_print("Visualizer stopped\n");
 }
 
-void visualizer_set_target_pid(VisualizerState *state, guint32 pid) {
+void visualizer_set_target_pid(VisualizerState *state, guint32 pid, const gchar *bus_name) {
     if (!state) return;
 
     if (state->target_pid == pid && pid != 0) {
@@ -701,15 +708,18 @@ void visualizer_set_target_pid(VisualizerState *state, guint32 pid) {
     g_print("Visualizer: Setting target PID to %u\n", pid);
 
     state->target_pid = pid;
+    g_free(state->target_bus_name);
+    state->target_bus_name = g_strdup(bus_name);
     state->target_found = FALSE;
     state->target_node_id = 0;
     state->target_serial = -1;
 
     // Find the sink-input index for this PID using pactl
     // This handles Chromium/Electron child process lookup
+    gint sink_input = -1;
     if (pid > 0) {
         // pw_find_sink_input_by_pid walks the process tree
-        gint sink_input = pw_find_sink_input_by_pid(pid);
+        sink_input = pw_find_sink_input_by_pid(pid);
         if (sink_input < 0) {
             // Try walking the tree manually
             gchar *cmd = g_strdup_printf("pgrep -P %u", pid);
@@ -728,13 +738,24 @@ void visualizer_set_target_pid(VisualizerState *state, guint32 pid) {
             }
             g_free(cmd);
         }
+    }
 
-        if (sink_input >= 0) {
-            state->target_serial = sink_input;
-            g_print("Visualizer: Found sink-input %d for PID %u\n", sink_input, pid);
-        } else {
-            g_print("Visualizer: No sink-input found for PID %u\n", pid);
+    // Fallback: match by application name (for ALSA players without process.id)
+    if (sink_input < 0 && bus_name) {
+        // Extract app name from "org.mpris.MediaPlayer2.qobuz-player" -> "qobuz-player"
+        const gchar *prefix = "org.mpris.MediaPlayer2.";
+        const gchar *app_name = bus_name;
+        if (g_str_has_prefix(bus_name, prefix)) {
+            app_name = bus_name + strlen(prefix);
         }
+        sink_input = pw_find_sink_input_by_app_name(app_name);
+    }
+
+    if (sink_input >= 0) {
+        state->target_serial = sink_input;
+        g_print("Visualizer: Found sink-input %d for PID %u\n", sink_input, pid);
+    } else {
+        g_print("Visualizer: No sink-input found for PID %u\n", pid);
     }
 
     // If running, disconnect current stream and search for new target
@@ -751,32 +772,45 @@ void visualizer_set_target_pid(VisualizerState *state, guint32 pid) {
 }
 
 void visualizer_retry_target(VisualizerState *state) {
-    if (!state || state->target_pid == 0) return;
+    if (!state || (state->target_pid == 0 && !state->target_bus_name)) return;
 
     // Already have a valid target, no need to retry
     if (state->target_serial > 0 && state->target_found) return;
 
     g_print("Visualizer: Retrying sink-input lookup for PID %u\n", state->target_pid);
 
-    // Re-attempt to find sink-input
-    gint sink_input = pw_find_sink_input_by_pid(state->target_pid);
-    if (sink_input < 0) {
-        // Try child processes
-        gchar *cmd = g_strdup_printf("pgrep -P %u", state->target_pid);
-        gchar *output = NULL;
-        if (g_spawn_command_line_sync(cmd, &output, NULL, NULL, NULL) && output) {
-            gchar **child_pids = g_strsplit(output, "\n", -1);
-            for (gchar **p = child_pids; *p && **p; p++) {
-                guint32 child_pid = (guint32)g_ascii_strtoull(*p, NULL, 10);
-                if (child_pid > 0) {
-                    sink_input = pw_find_sink_input_by_pid(child_pid);
-                    if (sink_input >= 0) break;
+    // Re-attempt to find sink-input by PID
+    gint sink_input = -1;
+    if (state->target_pid > 0) {
+        sink_input = pw_find_sink_input_by_pid(state->target_pid);
+        if (sink_input < 0) {
+            // Try child processes
+            gchar *cmd = g_strdup_printf("pgrep -P %u", state->target_pid);
+            gchar *output = NULL;
+            if (g_spawn_command_line_sync(cmd, &output, NULL, NULL, NULL) && output) {
+                gchar **child_pids = g_strsplit(output, "\n", -1);
+                for (gchar **p = child_pids; *p && **p; p++) {
+                    guint32 child_pid = (guint32)g_ascii_strtoull(*p, NULL, 10);
+                    if (child_pid > 0) {
+                        sink_input = pw_find_sink_input_by_pid(child_pid);
+                        if (sink_input >= 0) break;
+                    }
                 }
+                g_strfreev(child_pids);
+                g_free(output);
             }
-            g_strfreev(child_pids);
-            g_free(output);
+            g_free(cmd);
         }
-        g_free(cmd);
+    }
+
+    // Fallback: match by application name
+    if (sink_input < 0 && state->target_bus_name) {
+        const gchar *prefix = "org.mpris.MediaPlayer2.";
+        const gchar *app_name = state->target_bus_name;
+        if (g_str_has_prefix(state->target_bus_name, prefix)) {
+            app_name = state->target_bus_name + strlen(prefix);
+        }
+        sink_input = pw_find_sink_input_by_app_name(app_name);
     }
 
     if (sink_input >= 0 && sink_input != state->target_serial) {
@@ -815,6 +849,7 @@ void visualizer_cleanup(VisualizerState *state) {
     }
 
     g_free(state->target_node_name);
+    g_free(state->target_bus_name);
     if (state->audio_nodes) {
         g_hash_table_destroy(state->audio_nodes);
     }

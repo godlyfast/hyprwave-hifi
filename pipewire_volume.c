@@ -144,6 +144,51 @@ gint pw_find_sink_input_by_pid(guint32 pid) {
     return found_index;
 }
 
+gint pw_find_sink_input_by_app_name(const gchar *app_name) {
+    if (!app_name || !*app_name) return -1;
+
+    gchar *stdout_str = NULL;
+    gchar *stderr_str = NULL;
+    gint exit_status;
+    GError *error = NULL;
+
+    gboolean result = g_spawn_command_line_sync(
+        "pactl list sink-inputs",
+        &stdout_str, &stderr_str, &exit_status, &error);
+
+    g_free(stderr_str);
+    if (error) { g_error_free(error); return -1; }
+    if (!result || exit_status != 0 || !stdout_str) { g_free(stdout_str); return -1; }
+
+    gint found_index = -1;
+    gint current_index = -1;
+
+    gchar **lines = g_strsplit(stdout_str, "\n", -1);
+    g_free(stdout_str);
+
+    for (gchar **line = lines; *line; line++) {
+        if (g_str_has_prefix(*line, "Sink Input #")) {
+            current_index = (gint)g_ascii_strtoll(*line + 12, NULL, 10);
+        }
+        // Match application.name containing the app name (case-insensitive)
+        if (current_index >= 0 && g_strstr_len(*line, -1, "application.name")) {
+            gchar *lower_line = g_ascii_strdown(*line, -1);
+            gchar *lower_name = g_ascii_strdown(app_name, -1);
+            gboolean match = g_strstr_len(lower_line, -1, lower_name) != NULL;
+            g_free(lower_line);
+            g_free(lower_name);
+            if (match) {
+                found_index = current_index;
+                g_print("PipeWire: Found sink-input #%d by app name '%s'\n", found_index, app_name);
+                break;
+            }
+        }
+    }
+
+    g_strfreev(lines);
+    return found_index;
+}
+
 /**
  * Find sink-input by checking the main PID and all its child processes.
  * This handles Chromium-based apps where audio comes from a child subprocess.

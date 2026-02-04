@@ -365,9 +365,7 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
     // Update visualizer to capture this player's audio
     if (state->visualizer) {
         guint32 player_pid = pw_extract_pid_from_bus_name(bus_name);
-        if (player_pid > 0) {
-            visualizer_set_target_pid(state->visualizer, player_pid);
-        }
+        visualizer_set_target_pid(state->visualizer, player_pid, bus_name);
     }
 }
 
@@ -533,8 +531,9 @@ static gboolean handle_sigusr2(gpointer user_data) {
 // Start visualizer when expanded (Hi-Fi feature)
 static void start_visualizer_if_expanded(AppState *state) {
     if (!state->visualizer || !state->layout->visualizer_enabled) return;
-    // Hide visualizer box entirely if no player audio target found
-    if (!state->visualizer->target_found) {
+    // Hide visualizer box if no player audio stream found (no sink-input)
+    gboolean has_target = state->visualizer->target_serial > 0 || state->visualizer->target_found;
+    if (!has_target) {
         if (state->visualizer_box) {
             gtk_widget_set_visible(state->visualizer_box, FALSE);
         }

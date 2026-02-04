@@ -63,6 +63,17 @@ gboolean pw_set_volume(gint sink_input_index, gdouble volume);
 guint32 pw_extract_pid_from_bus_name(const gchar *mpris_bus_name);
 
 /**
+ * Find the PipeWire sink-input index by application name substring.
+ *
+ * Matches against application.name property in pactl output.
+ * Useful for ALSA-based players that don't set application.process.id.
+ *
+ * @param app_name Substring to match in application.name (e.g., "qobuz-player")
+ * @return The sink-input index, or -1 if not found
+ */
+gint pw_find_sink_input_by_app_name(const gchar *app_name);
+
+/**
  * Check if pactl is available on the system.
  *
  * @return TRUE if pactl command exists, FALSE otherwise

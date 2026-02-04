@@ -27,6 +27,7 @@ typedef struct {
 
     // Target player tracking
     guint32 target_pid;           // PID of current MPRIS player
+    gchar *target_bus_name;       // MPRIS bus name for app-name fallback matching
     gint target_serial;           // PipeWire object.serial (same as pactl sink-input index)
     guint32 target_node_id;       // PipeWire node ID to capture from
     gchar *target_node_name;      // Node name for logging
@@ -68,7 +69,8 @@ void visualizer_start(VisualizerState *state);
 void visualizer_stop(VisualizerState *state);
 
 // Set target player by PID (call when MPRIS player changes)
-void visualizer_set_target_pid(VisualizerState *state, guint32 pid);
+// bus_name is used for app-name fallback when PID matching fails (ALSA players)
+void visualizer_set_target_pid(VisualizerState *state, guint32 pid, const gchar *bus_name);
 
 // Retry finding sink-input for current target (call when playback starts)
 void visualizer_retry_target(VisualizerState *state);
