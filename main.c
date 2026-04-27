@@ -126,7 +126,9 @@ static gboolean is_excluded_player(const gchar *name) {
 static gboolean is_allowed_chromium_player(const gchar *name) {
     // Allow specific names directly in the D-Bus name
     const gchar *allowed[] = {
-        "Cider", "tidal", "hifi", "qobuz", "spotify", "Plexamp", "roon", NULL
+        "Cider", "tidal", "hifi", "qobuz", "spotify", "Plexamp", "roon",
+        "Apple", "Music",     // Apple Music (PWA/Chromium wrapper)
+        NULL
     };
 
     for (const gchar **a = allowed; *a; a++) {
