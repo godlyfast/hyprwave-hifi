@@ -4,15 +4,6 @@
  * Improved contrast for seek bar and time text
  */
 
-/* Icons are authored white (visible on dark theme by default).
-   Invert them to black so they're visible on this theme's light buttons.
-   Note: GTK4's -gtk-icon-filter only reliably applies to themed/symbolic
-   icons; file-loaded GtkImages may ignore it. If light-theme users see
-   white-on-white icons, the icons SVGs need a runtime recolor instead. */
-.control-button image {
-    -gtk-icon-filter: invert(1);
-}
-
 :root {
     /* Progress Bar - Higher Contrast */
     --progress-bg: rgba(120, 130, 145, 0.35);

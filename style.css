@@ -584,7 +584,21 @@ overlay {
     line-height: 1.2;
 }
 
-/* Icons in icons/*.svg are authored as white-fill so they're visible
-   on dark/colored button gradients without runtime CSS filters
-   (GTK4's -gtk-icon-filter doesn't reliably apply to GtkImage loaded
-   from file). For the light theme, themes/light.css inverts them. */
+/* Custom: Light icons for prev/next buttons */
+button.prev,
+button.next,
+.prev-button,
+.next-button,
+#prev-button,
+#next-button {
+    -gtk-icon-filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(200%) contrast(100%);
+}
+
+button.prev image,
+button.next image,
+.prev-button image,
+.next-button image,
+#prev-button image,
+#next-button image {
+    -gtk-icon-filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(200%) contrast(100%);
+}
