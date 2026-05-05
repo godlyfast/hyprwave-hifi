@@ -566,9 +566,12 @@ static void stop_visualizer_if_collapsed(AppState *state) {
 // Helper function for delayed resize (horizontal idle mode)
 static gboolean delayed_control_bar_resize(gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    gtk_widget_set_size_request(state->control_bar_container, 280, 32);
+    int s = state->layout->button_size;
+    int slim_w = (int)(s * 4.0);   // matches normal horizontal bar width
+    int slim_h = (int)(s * 0.46);  // 32/70 in original geometry
+    gtk_widget_set_size_request(state->control_bar_container, slim_w, slim_h);
     gtk_widget_queue_resize(state->control_bar_container);
-    g_print("  Size request set to: 280x32 (after button fade)\n");
+    g_print("  Size request set to: %dx%d (slim, after button fade)\n", slim_w, slim_h);
     return G_SOURCE_REMOVE;
 }
 
@@ -662,11 +665,14 @@ static void exit_idle_mode(AppState *state) {
     g_print("← Exiting idle mode - restoring buttons\n");
     state->is_idle_mode = FALSE;
 
-    // Restore control bar size: 280x32 → 240x60
-    gtk_widget_set_size_request(state->control_bar_container, 240, 60);
+    // Restore control bar to normal horizontal dimensions, scaled with button_size
+    int s = state->layout->button_size;
+    int w = (int)(s * 4.0);
+    int h = s;
+    gtk_widget_set_size_request(state->control_bar_container, w, h);
     gtk_widget_queue_resize(state->control_bar_container);
     gtk_widget_queue_allocate(state->control_bar_container);
-    g_print("  Size request set to: 240x60\n");
+    g_print("  Size request set to: %dx%d\n", w, h);
 
     // Hide visualizer
     visualizer_hide(state->visualizer);
@@ -688,10 +694,12 @@ static void exit_idle_mode(AppState *state) {
 
 static gboolean delayed_control_bar_resize_vertical(gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    // Make it slimmer (from 70x240 to 32x280)
-    gtk_widget_set_size_request(state->control_bar_container, 32, 280);
+    int s = state->layout->button_size;
+    int slim_w = (int)(s * 0.46);  // 32/70 in original geometry
+    int slim_h = (int)(s * 4.0);
+    gtk_widget_set_size_request(state->control_bar_container, slim_w, slim_h);
     gtk_widget_queue_resize(state->control_bar_container);
-    g_print("  Vertical bar resized to: 32x280 (slim mode)\n");
+    g_print("  Vertical bar resized to: %dx%d (slim mode)\n", slim_w, slim_h);
     return G_SOURCE_REMOVE;
 }
 
@@ -735,8 +743,11 @@ static void exit_vertical_idle_mode(AppState *state) {
     g_print("← Exiting vertical idle mode - restoring buttons\n");
     state->is_idle_mode = FALSE;
     
-    // Restore control bar size
-    gtk_widget_set_size_request(state->control_bar_container, 70, 240);
+    // Restore control bar to normal vertical dimensions, scaled with button_size
+    int s = state->layout->button_size;
+    int w = s;
+    int h = (int)(s * 3.43);
+    gtk_widget_set_size_request(state->control_bar_container, w, h);
     gtk_widget_queue_resize(state->control_bar_container);
     
     // Hide vertical display

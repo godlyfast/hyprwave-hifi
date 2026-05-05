@@ -584,21 +584,10 @@ overlay {
     line-height: 1.2;
 }
 
-/* Custom: Light icons for prev/next buttons */
-button.prev,
-button.next,
-.prev-button,
-.next-button,
-#prev-button,
-#next-button {
-    -gtk-icon-filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(200%) contrast(100%);
-}
-
-button.prev image,
-button.next image,
-.prev-button image,
-.next-button image,
-#prev-button image,
-#next-button image {
-    -gtk-icon-filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(200%) contrast(100%);
+/* Render all control-button glyphs in white so they stay visible
+   against any button background (dark theme, gradient buttons, etc.).
+   GTK4 only supports a small set of filter functions — invert(1) is
+   the minimal, well-supported way to white-ify a black-fill SVG. */
+.control-button image {
+    -gtk-icon-filter: invert(1);
 }
