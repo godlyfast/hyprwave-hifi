@@ -584,10 +584,7 @@ overlay {
     line-height: 1.2;
 }
 
-/* Render all control-button glyphs in white so they stay visible
-   against any button background (dark theme, gradient buttons, etc.).
-   GTK4 only supports a small set of filter functions — invert(1) is
-   the minimal, well-supported way to white-ify a black-fill SVG. */
-.control-button image {
-    -gtk-icon-filter: invert(1);
-}
+/* Icons in icons/*.svg are authored as white-fill so they're visible
+   on dark/colored button gradients without runtime CSS filters
+   (GTK4's -gtk-icon-filter doesn't reliably apply to GtkImage loaded
+   from file). For the light theme, themes/light.css inverts them. */
