@@ -31,6 +31,9 @@ LayoutConfig* layout_load_config(void) {
             "# Theme: light or dark\n"
             "theme = light\n"
             "\n"
+            "# Size: tiny, small, default, large\n"
+            "size = default\n"
+            "\n"
             "[MusicPlayer]\n"
             "# Comma-separated list of preferred music players (first = highest priority)\n"
             "# HyprWave will search for these in order and latch onto the first one found\n"
@@ -83,6 +86,8 @@ LayoutConfig* layout_load_config(void) {
     config->notifications_enabled = TRUE;
     config->now_playing_enabled = TRUE;
     config->theme = g_strdup("light");
+    config->button_size = 70;
+    config->size_name = g_strdup("default");
     config->visualizer_enabled = TRUE;
     config->visualizer_idle_timeout = 30;
     config->vertical_display_enabled = TRUE;
@@ -264,18 +269,42 @@ void layout_setup_window_anchors(GtkWindow *window, LayoutConfig *config) {
 // CONTROL BAR
 // ========================================
 
+gint layout_get_control_padding(LayoutConfig *config) {
+    if (!config || !config->size_name) return 12;
+
+    if (g_strcmp0(config->size_name, "tiny") == 0) return 6;
+    if (g_strcmp0(config->size_name, "small") == 0) return 9;
+    if (g_strcmp0(config->size_name, "large") == 0) return 16;
+    return 12;
+}
+
+gint layout_get_control_spacing(LayoutConfig *config) {
+    if (!config) return 8;
+    gint spacing = (gint)(config->button_size * 0.11);
+    return spacing > 0 ? spacing : 1;
+}
+
+gint layout_get_control_button_size(LayoutConfig *config) {
+    if (!config) return 46;
+    gint button_size = config->button_size - (2 * layout_get_control_padding(config));
+    return button_size > 16 ? button_size : 16;
+}
+
+gint layout_get_control_bar_length(LayoutConfig *config) {
+    gint button_size = layout_get_control_button_size(config);
+    gint spacing = layout_get_control_spacing(config);
+    gint padding = layout_get_control_padding(config);
+    return (4 * button_size) + (3 * spacing) + (2 * padding);
+}
+
 GtkWidget* layout_create_control_bar(LayoutConfig *config,
                                       GtkWidget **prev_btn,
                                       GtkWidget **play_btn,
                                       GtkWidget **next_btn,
                                       GtkWidget **expand_btn) {
     GtkOrientation orientation = config->is_vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
-    // Spacing/dimension ratios derived from the original 70px-wide bar:
-    //   spacing  = button_size * 0.11   (was 8px when bar=70)
-    //   v-height = button_size * 3.43   (was 240px when bar=70)
-    //   h-width  = button_size * 4.00   (was 240px when bar=60)
-    // Padding is applied via the .size-* CSS class (style.css) — no runtime CSS.
-    int spacing = (int)(config->button_size * 0.11);
+    int spacing = layout_get_control_spacing(config);
+    int bar_length = layout_get_control_bar_length(config);
     GtkWidget *control_bar = gtk_box_new(orientation, spacing);
 
     gtk_widget_add_css_class(control_bar, config->is_vertical ? "control-container" : "control-container-horizontal");
@@ -291,9 +320,9 @@ GtkWidget* layout_create_control_bar(LayoutConfig *config,
     gtk_widget_set_vexpand(control_bar, FALSE);
 
     if (config->is_vertical) {
-        gtk_widget_set_size_request(control_bar, config->button_size, (int)(config->button_size * 3.43));
+        gtk_widget_set_size_request(control_bar, config->button_size, bar_length);
     } else {
-        gtk_widget_set_size_request(control_bar, (int)(config->button_size * 4.0), config->button_size);
+        gtk_widget_set_size_request(control_bar, bar_length, config->button_size);
     }
 
     // Create buttons (widgets created externally, we just arrange them)

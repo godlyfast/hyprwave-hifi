@@ -5,6 +5,7 @@
 #include <string.h>
 #include <signal.h>
 #include <glib-unix.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include "layout.h"
 #include "paths.h"
 #include "notification.h"
@@ -67,6 +68,7 @@ typedef struct {
     gboolean is_idle_mode;
     guint morph_timer;
     gdouble button_fade_opacity;
+    gint control_icon_size;
 
     // Player monitoring
     guint dbus_watch_id;               // D-Bus name watcher
@@ -99,6 +101,89 @@ static void exit_vertical_idle_mode(AppState *state);
 static void find_active_player(AppState *state);
 
 static AppState *global_state = NULL;
+
+static gboolean should_use_light_control_icons(AppState *state) {
+    return state && state->layout && g_strcmp0(state->layout->theme, "dark") == 0;
+}
+
+static void recolor_pixbuf_to_white(GdkPixbuf *pixbuf) {
+    if (!pixbuf) return;
+
+    int width = gdk_pixbuf_get_width(pixbuf);
+    int height = gdk_pixbuf_get_height(pixbuf);
+    int rowstride = gdk_pixbuf_get_rowstride(pixbuf);
+    int channels = gdk_pixbuf_get_n_channels(pixbuf);
+    guchar *pixels = gdk_pixbuf_get_pixels(pixbuf);
+
+    for (int y = 0; y < height; y++) {
+        guchar *row = pixels + y * rowstride;
+        for (int x = 0; x < width; x++) {
+            guchar *pixel = row + x * channels;
+            if (channels < 4 || pixel[3] > 0) {
+                pixel[0] = 255;
+                pixel[1] = 255;
+                pixel[2] = 255;
+            }
+        }
+    }
+}
+
+static void set_control_icon(AppState *state, GtkWidget *image, const gchar *icon_name) {
+    if (!image || !icon_name) return;
+
+    gint icon_size = state && state->control_icon_size > 0 ? state->control_icon_size : 24;
+    gchar *icon_path = get_icon_path(icon_name);
+    GError *error = NULL;
+    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file_at_scale(
+        icon_path, icon_size, icon_size, TRUE, &error);
+
+    if (!pixbuf) {
+        g_warning("Failed to load control icon '%s': %s",
+                  icon_path, error ? error->message : "Unknown error");
+        if (error) g_error_free(error);
+        gtk_image_set_from_file(GTK_IMAGE(image), icon_path);
+        gtk_image_set_pixel_size(GTK_IMAGE(image), icon_size);
+        gtk_widget_set_size_request(image, icon_size, icon_size);
+        free_path(icon_path);
+        return;
+    }
+
+    if (should_use_light_control_icons(state)) {
+        recolor_pixbuf_to_white(pixbuf);
+    }
+
+    int width = gdk_pixbuf_get_width(pixbuf);
+    int height = gdk_pixbuf_get_height(pixbuf);
+    int rowstride = gdk_pixbuf_get_rowstride(pixbuf);
+    int channels = gdk_pixbuf_get_n_channels(pixbuf);
+    GdkMemoryFormat format = channels == 4 ? GDK_MEMORY_R8G8B8A8 : GDK_MEMORY_R8G8B8;
+    GBytes *bytes = g_bytes_new(gdk_pixbuf_get_pixels(pixbuf), (gsize)rowstride * height);
+    GdkTexture *texture = gdk_memory_texture_new(width, height, format, bytes, rowstride);
+
+    gtk_image_set_from_paintable(GTK_IMAGE(image), GDK_PAINTABLE(texture));
+    gtk_widget_set_size_request(image, icon_size, icon_size);
+    gtk_widget_set_halign(image, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(image, GTK_ALIGN_CENTER);
+
+    g_object_unref(texture);
+    g_bytes_unref(bytes);
+    g_object_unref(pixbuf);
+    free_path(icon_path);
+}
+
+static GtkWidget* create_control_icon(AppState *state, const gchar *icon_name) {
+    GtkWidget *image = gtk_image_new();
+    set_control_icon(state, image, icon_name);
+    return image;
+}
+
+static void configure_control_button(GtkWidget *button, gint size) {
+    gtk_widget_set_size_request(button, size, size);
+    gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(button, FALSE);
+    gtk_widget_set_vexpand(button, FALSE);
+}
 
 // ========================================
 // Hi-Fi: PLAYER FILTERING
@@ -516,9 +601,7 @@ static gboolean handle_sigusr2(gpointer user_data) {
 
         // Update expand icon and revealer
         const gchar *icon_name = layout_get_expand_icon(global_state->layout, global_state->is_expanded);
-        gchar *icon_path = get_icon_path(icon_name);
-        gtk_image_set_from_file(GTK_IMAGE(global_state->expand_icon), icon_path);
-        free_path(icon_path);
+        set_control_icon(global_state, global_state->expand_icon, icon_name);
         gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), global_state->is_expanded);
 
         return G_SOURCE_CONTINUE;
@@ -567,7 +650,7 @@ static void stop_visualizer_if_collapsed(AppState *state) {
 static gboolean delayed_control_bar_resize(gpointer user_data) {
     AppState *state = (AppState *)user_data;
     int s = state->layout->button_size;
-    int slim_w = (int)(s * 4.0);   // matches normal horizontal bar width
+    int slim_w = layout_get_control_bar_length(state->layout);
     int slim_h = (int)(s * 0.46);  // 32/70 in original geometry
     gtk_widget_set_size_request(state->control_bar_container, slim_w, slim_h);
     gtk_widget_queue_resize(state->control_bar_container);
@@ -667,7 +750,7 @@ static void exit_idle_mode(AppState *state) {
 
     // Restore control bar to normal horizontal dimensions, scaled with button_size
     int s = state->layout->button_size;
-    int w = (int)(s * 4.0);
+    int w = layout_get_control_bar_length(state->layout);
     int h = s;
     gtk_widget_set_size_request(state->control_bar_container, w, h);
     gtk_widget_queue_resize(state->control_bar_container);
@@ -696,10 +779,18 @@ static gboolean delayed_control_bar_resize_vertical(gpointer user_data) {
     AppState *state = (AppState *)user_data;
     int s = state->layout->button_size;
     int slim_w = (int)(s * 0.46);  // 32/70 in original geometry
-    int slim_h = (int)(s * 4.0);
+    int slim_h = layout_get_control_bar_length(state->layout);
     gtk_widget_set_size_request(state->control_bar_container, slim_w, slim_h);
     gtk_widget_queue_resize(state->control_bar_container);
     g_print("  Vertical bar resized to: %dx%d (slim mode)\n", slim_w, slim_h);
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean delayed_vertical_display_show(gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    if (state->is_idle_mode && state->vertical_display) {
+        vertical_display_show(state->vertical_display);
+    }
     return G_SOURCE_REMOVE;
 }
 
@@ -727,11 +818,9 @@ static gboolean enter_vertical_idle_mode(gpointer user_data) {
     }
     state->morph_timer = g_timeout_add(16, animate_button_fade, state);
     
-    // Show vertical display
-    vertical_display_show(state->vertical_display);
-    
     // Resize control bar to slim version (same as horizontal idle mode)
     g_timeout_add(350, delayed_control_bar_resize_vertical, state);
+    g_timeout_add(420, delayed_vertical_display_show, state);
     
     state->idle_timer = 0;
     return G_SOURCE_REMOVE;
@@ -742,16 +831,16 @@ static void exit_vertical_idle_mode(AppState *state) {
     
     g_print("← Exiting vertical idle mode - restoring buttons\n");
     state->is_idle_mode = FALSE;
+
+    // Hide vertical display before the buttons fade back in.
+    vertical_display_hide(state->vertical_display);
     
     // Restore control bar to normal vertical dimensions, scaled with button_size
     int s = state->layout->button_size;
     int w = s;
-    int h = (int)(s * 3.43);
+    int h = layout_get_control_bar_length(state->layout);
     gtk_widget_set_size_request(state->control_bar_container, w, h);
     gtk_widget_queue_resize(state->control_bar_container);
-    
-    // Hide vertical display
-    vertical_display_hide(state->vertical_display);
     
     // Start button fade-in animation
     if (state->morph_timer > 0) {
@@ -1158,9 +1247,7 @@ static void update_playback_status(AppState *state) {
         gboolean was_playing = state->is_playing;
         state->is_playing = g_strcmp0(status, "Playing") == 0;
         
-        gchar *icon_path = get_icon_path(state->is_playing ? "pause.svg" : "play.svg");
-        gtk_image_set_from_file(GTK_IMAGE(state->play_icon), icon_path);
-        free_path(icon_path);
+        set_control_icon(state, state->play_icon, state->is_playing ? "pause.svg" : "play.svg");
         
         // UPDATE VERTICAL DISPLAY
         if (state->vertical_display) {
@@ -1338,9 +1425,7 @@ static void on_expand_clicked(GtkButton *button, gpointer user_data) {
     }
 
     const gchar *icon_name = layout_get_expand_icon(state->layout, state->is_expanded);
-    gchar *icon_path = get_icon_path(icon_name);
-    gtk_image_set_from_file(GTK_IMAGE(state->expand_icon), icon_path);
-    free_path(icon_path);
+    set_control_icon(state, state->expand_icon, icon_name);
     gtk_revealer_set_reveal_child(GTK_REVEALER(state->revealer), state->is_expanded);
 
     // Start/stop visualizer based on expanded state
@@ -1615,60 +1700,41 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // ========================================
     // CONTROL BUTTONS - Create all buttons
     // ========================================
-    // Calculate button size from control bar dimension (buttons are ~51% of bar width)
-    int btn_size = (int)(state->layout->button_size * 0.51);
+    // Button diameter fills the configured bar width minus size-class padding.
+    int btn_size = layout_get_control_button_size(state->layout);
     int icon_size = (int)(btn_size * 0.55);  // Icon is ~55% of button size
+    state->control_icon_size = icon_size;
 
     GtkWidget *prev_btn = gtk_button_new();
-    gtk_widget_set_size_request(prev_btn, btn_size, btn_size);
-    gtk_widget_set_hexpand(prev_btn, FALSE);
-    gtk_widget_set_vexpand(prev_btn, FALSE);
-    gchar *prev_icon_path = get_icon_path("previous.svg");
-    GtkWidget *prev_icon = gtk_image_new_from_file(prev_icon_path);
-    free_path(prev_icon_path);
-    gtk_image_set_pixel_size(GTK_IMAGE(prev_icon), icon_size);
+    configure_control_button(prev_btn, btn_size);
+    GtkWidget *prev_icon = create_control_icon(state, "previous.svg");
     gtk_button_set_child(GTK_BUTTON(prev_btn), prev_icon);
     gtk_widget_add_css_class(prev_btn, "control-button");
     gtk_widget_add_css_class(prev_btn, "prev-button");
     g_signal_connect(prev_btn, "clicked", G_CALLBACK(on_prev_clicked), state);
 
     GtkWidget *play_btn = gtk_button_new();
-    gtk_widget_set_size_request(play_btn, btn_size, btn_size);
-    gtk_widget_set_hexpand(play_btn, FALSE);
-    gtk_widget_set_vexpand(play_btn, FALSE);
-    gchar *play_icon_path = get_icon_path("play.svg");
-    GtkWidget *play_icon = gtk_image_new_from_file(play_icon_path);
-    free_path(play_icon_path);
+    configure_control_button(play_btn, btn_size);
+    GtkWidget *play_icon = create_control_icon(state, "play.svg");
     state->play_icon = play_icon;
-    gtk_image_set_pixel_size(GTK_IMAGE(play_icon), icon_size);
     gtk_button_set_child(GTK_BUTTON(play_btn), play_icon);
     gtk_widget_add_css_class(play_btn, "control-button");
     gtk_widget_add_css_class(play_btn, "play-button");
     g_signal_connect(play_btn, "clicked", G_CALLBACK(on_play_clicked), state);
 
     GtkWidget *next_btn = gtk_button_new();
-    gtk_widget_set_size_request(next_btn, btn_size, btn_size);
-    gtk_widget_set_hexpand(next_btn, FALSE);
-    gtk_widget_set_vexpand(next_btn, FALSE);
-    gchar *next_icon_path = get_icon_path("next.svg");
-    GtkWidget *next_icon = gtk_image_new_from_file(next_icon_path);
-    free_path(next_icon_path);
-    gtk_image_set_pixel_size(GTK_IMAGE(next_icon), icon_size);
+    configure_control_button(next_btn, btn_size);
+    GtkWidget *next_icon = create_control_icon(state, "next.svg");
     gtk_button_set_child(GTK_BUTTON(next_btn), next_icon);
     gtk_widget_add_css_class(next_btn, "control-button");
     gtk_widget_add_css_class(next_btn, "next-button");
     g_signal_connect(next_btn, "clicked", G_CALLBACK(on_next_clicked), state);
 
     GtkWidget *expand_btn = gtk_button_new();
-    gtk_widget_set_size_request(expand_btn, btn_size, btn_size);
-    gtk_widget_set_hexpand(expand_btn, FALSE);
-    gtk_widget_set_vexpand(expand_btn, FALSE);
+    configure_control_button(expand_btn, btn_size);
     const gchar *initial_icon_name = layout_get_expand_icon(state->layout, FALSE);
-    gchar *expand_icon_path = get_icon_path(initial_icon_name);
-    GtkWidget *expand_icon = gtk_image_new_from_file(expand_icon_path);
-    free_path(expand_icon_path);
+    GtkWidget *expand_icon = create_control_icon(state, initial_icon_name);
     state->expand_icon = expand_icon;
-    gtk_image_set_pixel_size(GTK_IMAGE(expand_icon), icon_size);
     gtk_button_set_child(GTK_BUTTON(expand_btn), expand_icon);
     gtk_widget_add_css_class(expand_btn, "control-button");
     gtk_widget_add_css_class(expand_btn, "expand-button");
@@ -1692,6 +1758,14 @@ static void activate(GtkApplication *app, gpointer user_data) {
     if (state->layout->is_vertical && state->layout->vertical_display_enabled) {
         state->vertical_display = vertical_display_init();
         if (state->vertical_display) {
+            int display_w = (int)(state->layout->button_size * 0.46);
+            int display_h = layout_get_control_bar_length(state->layout);
+            gchar *display_size_class = g_strdup_printf(
+                "size-%s", state->layout->size_name ? state->layout->size_name : "default");
+            gtk_widget_add_css_class(state->vertical_display->container, display_size_class);
+            gtk_widget_set_size_request(state->vertical_display->container, display_w, display_h);
+            g_free(display_size_class);
+
             // Create overlay: control bar as base, vertical display on top
             GtkWidget *overlay = gtk_overlay_new();
             gtk_overlay_set_child(GTK_OVERLAY(overlay), control_bar);
@@ -1702,7 +1776,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
             gtk_overlay_add_overlay(GTK_OVERLAY(overlay), state->vertical_display->container);
 
             // Start hidden and transparent
-            gtk_widget_set_visible(state->vertical_display->container, TRUE);
+            gtk_widget_set_visible(state->vertical_display->container, FALSE);
             gtk_widget_set_opacity(state->vertical_display->container, 0.0);
 
             final_control_widget = overlay;

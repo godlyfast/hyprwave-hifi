@@ -63,6 +63,10 @@ GtkWidget* layout_create_main_container(LayoutConfig *config,
                                          GtkWidget *revealer);
 
 // Helper functions
+gint layout_get_control_padding(LayoutConfig *config);
+gint layout_get_control_spacing(LayoutConfig *config);
+gint layout_get_control_button_size(LayoutConfig *config);
+gint layout_get_control_bar_length(LayoutConfig *config);
 const gchar* layout_get_expand_icon(LayoutConfig *config, gboolean is_expanded);
 GtkRevealerTransitionType layout_get_transition_type(LayoutConfig *config);
 

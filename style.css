@@ -289,6 +289,8 @@ progressbar progress {
 .control-button {
     padding: 0;
     margin: 0.75px;
+    min-width: 0;
+    min-height: 0;
 
     background: linear-gradient(135deg, var(--btn-default), var(--btn-default-secondary));
 
@@ -583,6 +585,16 @@ overlay {
     letter-spacing: 0px;
     line-height: 1.2;
 }
+
+.vertical-display-container.size-tiny       { padding: 4px 2px; }
+.vertical-display-container.size-small      { padding: 6px 3px; }
+.vertical-display-container.size-default    { padding: 8px 4px; }
+.vertical-display-container.size-large      { padding: 11px 5px; }
+
+.vertical-display-container.size-tiny .vertical-display-label    { font-size: 14px; }
+.vertical-display-container.size-small .vertical-display-label   { font-size: 21px; }
+.vertical-display-container.size-default .vertical-display-label { font-size: 28px; }
+.vertical-display-container.size-large .vertical-display-label   { font-size: 37px; }
 
 /* Custom: Light icons for prev/next buttons */
 button.prev,

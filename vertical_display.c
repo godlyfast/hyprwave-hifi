@@ -292,6 +292,7 @@ void vertical_display_hide(VerticalDisplayState *state) {
     
     state->is_showing = FALSE;
     gtk_widget_set_opacity(state->container, 0.0);
+    gtk_widget_set_visible(state->container, FALSE);
 }
 
 void vertical_display_update_track(VerticalDisplayState *state,

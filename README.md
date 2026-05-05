@@ -176,6 +176,9 @@ margin = 10
 # Theme: light or dark
 theme = dark
 
+# Size: tiny, small, default, large
+size = default
+
 [Notifications]
 enabled = true
 now_playing = true
@@ -202,6 +205,9 @@ preference = spotify,vlc
 |------|--------|------------|
 | `right` / `left` | Vertical | In expanded section (below album art) |
 | `top` / `bottom` | Horizontal | In expanded section |
+
+**Size Options:**
+- **`tiny`**, **`small`**, **`default`**, **`large`** - Scale the control bar, round buttons, icons, spacing, and vertical idle display together
 
 **Notification Options:**
 - **`enabled = true`** - Master switch for all notifications
