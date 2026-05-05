@@ -285,35 +285,28 @@ progressbar progress {
    Control Buttons - FIXED ROUNDED SHAPE
    ======================================== */
 
-/* All control buttons - base styles - size set dynamically from config */
+/* All control buttons - base styles. Size is set in C via gtk_widget_set_size_request. */
 .control-button {
-    padding: 0 !important;
+    padding: 0;
     margin: 0.75px;
-
-    /* Size is set dynamically from config.button_size in C code */
-    /* Ensure buttons maintain square aspect ratio */
-    flex-shrink: 0 !important;
-    flex-grow: 0 !important;
-    align-self: center;
 
     background: linear-gradient(135deg, var(--btn-default), var(--btn-default-secondary));
 
     border: none;
     box-shadow: 0 0 8px var(--shadow-button);
-
     border-radius: 50%;
-
-    /* Force aspect ratio to be 1:1 (square) - critical for round buttons */
-    aspect-ratio: 1 / 1 !important;
-
-    /* Prevent any dimension constraints */
-    max-width: none !important;
-    max-height: none !important;
 }
 
-.control-button image {
-    /* Icon size is set dynamically in C code - don't override here */
-}
+/* Per-size container padding (selected by class added in layout.c).
+   Values approximate button_size * 0.17, rounded for crisp rendering. */
+.control-container.size-tiny,
+.control-container-horizontal.size-tiny       { padding: 6px; }
+.control-container.size-small,
+.control-container-horizontal.size-small      { padding: 9px; }
+.control-container.size-default,
+.control-container-horizontal.size-default    { padding: 12px; }
+.control-container.size-large,
+.control-container-horizontal.size-large      { padding: 16px; }
 
 .control-button:hover {
     background: linear-gradient(135deg, var(--btn-default-hover), var(--btn-default-hover-secondary));
