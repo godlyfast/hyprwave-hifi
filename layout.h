@@ -26,6 +26,7 @@ typedef struct {
     gint vertical_display_scroll_interval;
     gchar **player_preference;             // Array of preferred players (e.g., ["spotify", "vlc"])
     gint player_preference_count;          // Number of preferred players
+    gint button_size;                      // Button size (xs=20, s=40, m=70, l=100)
 } LayoutConfig;
 
 typedef struct {

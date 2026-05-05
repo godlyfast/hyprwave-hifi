@@ -1604,48 +1604,60 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // ========================================
     // CONTROL BUTTONS - Create all buttons
     // ========================================
+    // Calculate button size from control bar dimension (buttons are ~51% of bar width)
+    int btn_size = (int)(state->layout->button_size * 0.51);
+    int icon_size = (int)(btn_size * 0.55);  // Icon is ~55% of button size
+
     GtkWidget *prev_btn = gtk_button_new();
-    gtk_widget_set_size_request(prev_btn, 36, 36);
+    gtk_widget_set_size_request(prev_btn, btn_size, btn_size);
+    gtk_widget_set_hexpand(prev_btn, FALSE);
+    gtk_widget_set_vexpand(prev_btn, FALSE);
     gchar *prev_icon_path = get_icon_path("previous.svg");
     GtkWidget *prev_icon = gtk_image_new_from_file(prev_icon_path);
     free_path(prev_icon_path);
-    gtk_image_set_pixel_size(GTK_IMAGE(prev_icon), 20);
+    gtk_image_set_pixel_size(GTK_IMAGE(prev_icon), icon_size);
     gtk_button_set_child(GTK_BUTTON(prev_btn), prev_icon);
     gtk_widget_add_css_class(prev_btn, "control-button");
     gtk_widget_add_css_class(prev_btn, "prev-button");
     g_signal_connect(prev_btn, "clicked", G_CALLBACK(on_prev_clicked), state);
 
     GtkWidget *play_btn = gtk_button_new();
-    gtk_widget_set_size_request(play_btn, 36, 36);
+    gtk_widget_set_size_request(play_btn, btn_size, btn_size);
+    gtk_widget_set_hexpand(play_btn, FALSE);
+    gtk_widget_set_vexpand(play_btn, FALSE);
     gchar *play_icon_path = get_icon_path("play.svg");
     GtkWidget *play_icon = gtk_image_new_from_file(play_icon_path);
     free_path(play_icon_path);
     state->play_icon = play_icon;
-    gtk_image_set_pixel_size(GTK_IMAGE(play_icon), 20);
+    gtk_image_set_pixel_size(GTK_IMAGE(play_icon), icon_size);
     gtk_button_set_child(GTK_BUTTON(play_btn), play_icon);
     gtk_widget_add_css_class(play_btn, "control-button");
     gtk_widget_add_css_class(play_btn, "play-button");
     g_signal_connect(play_btn, "clicked", G_CALLBACK(on_play_clicked), state);
 
     GtkWidget *next_btn = gtk_button_new();
-    gtk_widget_set_size_request(next_btn, 36, 36);
+    gtk_widget_set_size_request(next_btn, btn_size, btn_size);
+    gtk_widget_set_hexpand(next_btn, FALSE);
+    gtk_widget_set_vexpand(next_btn, FALSE);
     gchar *next_icon_path = get_icon_path("next.svg");
     GtkWidget *next_icon = gtk_image_new_from_file(next_icon_path);
     free_path(next_icon_path);
-    gtk_image_set_pixel_size(GTK_IMAGE(next_icon), 20);
+    gtk_image_set_pixel_size(GTK_IMAGE(next_icon), icon_size);
     gtk_button_set_child(GTK_BUTTON(next_btn), next_icon);
     gtk_widget_add_css_class(next_btn, "control-button");
     gtk_widget_add_css_class(next_btn, "next-button");
     g_signal_connect(next_btn, "clicked", G_CALLBACK(on_next_clicked), state);
 
     GtkWidget *expand_btn = gtk_button_new();
-    gtk_widget_set_size_request(expand_btn, 36, 36);
+    gtk_widget_set_size_request(expand_btn, btn_size, btn_size);
+    gtk_widget_set_hexpand(expand_btn, FALSE);
+    gtk_widget_set_vexpand(expand_btn, FALSE);
     const gchar *initial_icon_name = layout_get_expand_icon(state->layout, FALSE);
     gchar *expand_icon_path = get_icon_path(initial_icon_name);
     GtkWidget *expand_icon = gtk_image_new_from_file(expand_icon_path);
     free_path(expand_icon_path);
     state->expand_icon = expand_icon;
-    gtk_image_set_pixel_size(GTK_IMAGE(expand_icon), 20);
+    gtk_image_set_pixel_size(GTK_IMAGE(expand_icon), icon_size);
     gtk_button_set_child(GTK_BUTTON(expand_btn), expand_icon);
     gtk_widget_add_css_class(expand_btn, "control-button");
     gtk_widget_add_css_class(expand_btn, "expand-button");

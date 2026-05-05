@@ -118,6 +118,23 @@ LayoutConfig* layout_load_config(void) {
             config->theme = theme_str;
         }
 
+        // Load size (control bar width in pixels for vertical, height for horizontal)
+        gchar *size_str = g_key_file_get_string(keyfile, "General", "size", NULL);
+        if (size_str) {
+            if (g_strcmp0(size_str, "tiny") == 0) {
+                config->button_size = 35;  // Half of default
+            } else if (g_strcmp0(size_str, "small") == 0) {
+                config->button_size = 52;  // 3/4 of default
+            } else if (g_strcmp0(size_str, "large") == 0) {
+                config->button_size = 93;  // 1.33x default
+            } else {
+                config->button_size = 70; // default
+            }
+            g_free(size_str);
+        } else {
+            config->button_size = 70; // default if not specified
+        }
+
         // Load Keybinds section (optional)
         gchar *vis_bind = g_key_file_get_string(keyfile, "Keybinds", "toggle_visibility", NULL);
         if (vis_bind) {
@@ -247,7 +264,12 @@ GtkWidget* layout_create_control_bar(LayoutConfig *config,
                                       GtkWidget **next_btn,
                                       GtkWidget **expand_btn) {
     GtkOrientation orientation = config->is_vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
-    GtkWidget *control_bar = gtk_box_new(orientation, 8);
+    // Dynamic spacing based on button_size (roughly 11% of button_size)
+    int spacing = (int)(config->button_size * 0.11);
+    GtkWidget *control_bar = gtk_box_new(orientation, spacing);
+
+    // Make box homogeneous so all buttons get equal space
+    gtk_box_set_homogeneous(GTK_BOX(control_bar), TRUE);
 
     gtk_widget_add_css_class(control_bar, config->is_vertical ? "control-container" : "control-container-horizontal");
     gtk_widget_set_halign(control_bar, GTK_ALIGN_CENTER);
@@ -255,11 +277,32 @@ GtkWidget* layout_create_control_bar(LayoutConfig *config,
     gtk_widget_set_hexpand(control_bar, FALSE);
     gtk_widget_set_vexpand(control_bar, FALSE);
 
+    // Calculate dynamic padding (17% of button_size)
+    int padding = (int)(config->button_size * 0.17);
+
     if (config->is_vertical) {
-        gtk_widget_set_size_request(control_bar, 70, 240);
+        // Vertical: button_size is the width, height is ~3.43x width (240/70 ratio)
+        int width = config->button_size;
+        int height = (int)(config->button_size * 3.43);
+        gtk_widget_set_size_request(control_bar, width, height);
     } else {
-        gtk_widget_set_size_request(control_bar, 240, 60);
+        // Horizontal: button_size is the height, width is ~4x height (240/60 ratio)
+        int height = config->button_size;
+        int width = (int)(config->button_size * 4.0);
+        gtk_widget_set_size_request(control_bar, width, height);
     }
+
+    // Apply dynamic padding via CSS
+    gchar *css = g_strdup_printf(".control-container, .control-container-horizontal { padding: %dpx; }", padding);
+    GtkCssProvider *provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(provider, css);
+    gtk_style_context_add_provider_for_display(
+        gdk_display_get_default(),
+        GTK_STYLE_PROVIDER(provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+    );
+    g_free(css);
+    g_object_unref(provider);
 
     // Create buttons (widgets created externally, we just arrange them)
     gtk_box_append(GTK_BOX(control_bar), *prev_btn);

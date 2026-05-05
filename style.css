@@ -11,27 +11,27 @@
     --bg-album-cover: rgba(220, 228, 235, 0.85);
     --bg-album-secondary: rgba(210, 220, 230, 0.85);
     
-    /* Button Colors - Default (Prev/Next) - Steel Gray */
-    --btn-default: rgba(200, 210, 220, 0.85);
-    --btn-default-secondary: rgba(190, 200, 210, 0.85);
-    --btn-default-hover: rgba(210, 220, 230, 0.92);
-    --btn-default-hover-secondary: rgba(200, 210, 220, 0.92);
-    
-    /* Button Colors - Play/Pause - Brushed Steel */
-    --btn-play: rgba(180, 190, 200, 0.95);
-    --btn-play-secondary: rgba(170, 180, 190, 0.95);
-    --btn-play-hover: rgba(190, 200, 210, 0.98);
-    --btn-play-hover-secondary: rgba(180, 190, 200, 0.98);
-    --btn-play-active: rgba(160, 170, 180, 0.95);
-    --btn-play-active-secondary: rgba(150, 160, 170, 0.95);
-    
-    /* Button Colors - Expand - Light Steel */
-    --btn-expand: rgba(185, 195, 205, 0.95);
-    --btn-expand-secondary: rgba(175, 185, 195, 0.95);
-    --btn-expand-hover: rgba(195, 205, 215, 0.98);
-    --btn-expand-hover-secondary: rgba(185, 195, 205, 0.98);
-    --btn-expand-active: rgba(165, 175, 185, 0.95);
-    --btn-expand-active-secondary: rgba(155, 165, 175, 0.95);
+    /* Button Colors - Default (Prev/Next) - Teal Base */
+    --btn-default: rgba(60, 120, 140, 0.85);
+    --btn-default-secondary: rgba(50, 110, 130, 0.85);
+    --btn-default-hover: rgba(80, 140, 160, 0.92);
+    --btn-default-hover-secondary: rgba(70, 130, 150, 0.92);
+
+    /* Button Colors - Play/Pause - Hot Pink/Orange */
+    --btn-play: rgba(255, 100, 150, 0.95);
+    --btn-play-secondary: rgba(255, 140, 80, 0.95);
+    --btn-play-hover: rgba(255, 120, 170, 0.98);
+    --btn-play-hover-secondary: rgba(255, 160, 100, 0.98);
+    --btn-play-active: rgba(235, 80, 130, 0.95);
+    --btn-play-active-secondary: rgba(245, 120, 60, 0.95);
+
+    /* Button Colors - Expand - Cyan Glow */
+    --btn-expand: rgba(50, 200, 255, 0.95);
+    --btn-expand-secondary: rgba(80, 220, 255, 0.95);
+    --btn-expand-hover: rgba(70, 220, 255, 0.98);
+    --btn-expand-hover-secondary: rgba(100, 240, 255, 0.98);
+    --btn-expand-active: rgba(30, 180, 235, 0.95);
+    --btn-expand-active-secondary: rgba(60, 200, 245, 0.95);
     
     /* Progress Bar Colors */
     --progress-bg: rgba(200, 210, 220, 0.25);
@@ -74,7 +74,7 @@
     --border-radius-album: 16px;
     --border-radius-button: 50%;
     --border-radius-progress: 2px;
-    
+
     --padding-container: 12px;
     --padding-section: 16px;
 }
@@ -126,6 +126,8 @@ window > * {
 
     padding: var(--padding-container);
     margin: 0;
+
+    /* Size is set dynamically from config - don't override */
 }
 
 /* ========================================
@@ -139,9 +141,8 @@ window > * {
     border-radius: var(--border-radius-container); /* Keeps the pill shape */
     border: 1px solid var(--border-primary);
 
-    /* Horizontal padding is critical here to prevent buttons 
-       from touching the rounded edges */
-    padding: 8px 24px; 
+    /* Horizontal padding - reduced for small buttons */
+    padding: 2px 6px;
     margin: 0;
 }
 
@@ -284,25 +285,34 @@ progressbar progress {
    Control Buttons - FIXED ROUNDED SHAPE
    ======================================== */
 
-/* All control buttons - base styles */
+/* All control buttons - base styles - size set dynamically from config */
 .control-button {
-    padding: 0;
-    
-    /* Add margin to compensate for removed border */
-    margin: 1.5px;  /* Same as the old border width */
-    
-    min-width: 44px;
-    min-height: 44px;
-    
+    padding: 0 !important;
+    margin: 0.75px;
+
+    /* Size is set dynamically from config.button_size in C code */
+    /* Ensure buttons maintain square aspect ratio */
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
+    align-self: center;
+
     background: linear-gradient(135deg, var(--btn-default), var(--btn-default-secondary));
-    
+
     border: none;
-    box-shadow: 
-        inset 0 0 0 1.5px var(--border-button),
-        0 4px 16px var(--shadow-button),
-        inset 0 1px 1px rgba(255, 255, 255, 0.2);
-    
+    box-shadow: 0 0 8px var(--shadow-button);
+
     border-radius: 50%;
+
+    /* Force aspect ratio to be 1:1 (square) - critical for round buttons */
+    aspect-ratio: 1 / 1 !important;
+
+    /* Prevent any dimension constraints */
+    max-width: none !important;
+    max-height: none !important;
+}
+
+.control-button image {
+    /* Icon size is set dynamically in C code - don't override here */
 }
 
 .control-button:hover {
@@ -582,4 +592,23 @@ overlay {
     color: black; /* Match visualizer bar color */
     letter-spacing: 0px;
     line-height: 1.2;
+}
+
+/* Custom: Light icons for prev/next buttons */
+button.prev,
+button.next,
+.prev-button,
+.next-button,
+#prev-button,
+#next-button {
+    -gtk-icon-filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(200%) contrast(100%);
+}
+
+button.prev image,
+button.next image,
+.prev-button image,
+.next-button image,
+#prev-button image,
+#next-button image {
+    -gtk-icon-filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(200%) contrast(100%);
 }
