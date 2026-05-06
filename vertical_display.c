@@ -3,7 +3,7 @@
 #include <ctype.h>
 
 #define SCROLL_INTERVAL_MS 200
-#define VISIBLE_LINES 8
+#define VISIBLE_LINES 6
 #define PAUSE_ANIMATION_FRAMES 4
 
 // Forward declarations
