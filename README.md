@@ -6,9 +6,9 @@ and vertical idle display support.
 
 This repository is the HiFi fork of upstream
 [hyprwave](https://github.com/shantanubaddar/hyprwave). Upstream release,
-AUR, and `github:shantanubaddar/hyprwave` Nix instructions refer to the
-original project unless explicitly stated otherwise. Use this repository URL
-when you want the HiFi fork changes.
+and `github:shantanubaddar/hyprwave` Nix instructions refer to the original
+project unless explicitly stated otherwise. Use this repository URL or the
+`hyprwave-hifi` package name when you want the HiFi fork changes.
 
 <p align="center">
   <img src="screenshots/dark-expanded.png" alt="Expanded view with visualizer" width="280">
@@ -117,9 +117,21 @@ The upstream package remains available separately as
 
 ### AUR
 
-`yay -S hyprwave` installs the upstream `hyprwave` package, not necessarily this
-HiFi fork. Use the source or Nix instructions above when you need the fork's
-PipeWire/per-application-volume changes.
+This fork is published on AUR as `hyprwave-hifi`:
+
+```bash
+yay -S hyprwave-hifi
+```
+
+For a package that tracks the latest `main` branch, use:
+
+```bash
+yay -S hyprwave-hifi-git
+```
+
+Both fork packages provide `hyprwave` and conflict with the upstream `hyprwave`
+package, so keep only one installed. `yay -S hyprwave` still targets the
+original upstream package.
 
 ## Usage
 
