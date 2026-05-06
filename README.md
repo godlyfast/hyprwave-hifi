@@ -1,40 +1,42 @@
 # HyprWave HiFi
 
-A sleek music control overlay for Wayland with **per-application volume control** and **PipeWire-native audio visualization**.
+HyprWave HiFi is a GTK4/Wayland music control overlay with MPRIS controls,
+per-application volume, PipeWire-native visualization, album art, notifications,
+and vertical idle display support.
 
-This is a HiFi-focused fork of [hyprwave](https://github.com/shantanubaddar/hyprwave) with enhanced audio integration for audiophile setups. Includes per-application volume control, PipeWire-native visualization, vertical display mode, and idle mode animations.
+This repository is the HiFi fork of upstream
+[hyprwave](https://github.com/shantanubaddar/hyprwave). Upstream release,
+AUR, and `github:shantanubaddar/hyprwave` Nix instructions refer to the
+original project unless explicitly stated otherwise. Use this repository URL
+when you want the HiFi fork changes.
 
 <p align="center">
   <img src="screenshots/dark-expanded.png" alt="Expanded view with visualizer" width="280">
 </p>
 
-## What Makes This Fork Different
+## Fork Differences
 
-| Feature | Upstream | HyprWave HiFi |
-|---------|----------|---------------|
-| **Volume Control** | System-wide (pactl) | Per-application (targets specific player) |
-| **Visualizer Backend** | PulseAudio | PipeWire native API |
-| **Visualizer Layout** | Horizontal only | Works in vertical layout too |
-| **Volume Independence** | Tied to volume level | AGC normalizes dynamics |
-| **Album Art** | Standard size | Larger, prominent display |
-| **Visualizer Position** | Replaces controls | Below album art in expanded view |
+| Area | Upstream hyprwave | HyprWave HiFi |
+| --- | --- | --- |
+| Volume control | General player/system-oriented volume | Per-application sink-input control with MPRIS fallback |
+| Visualizer backend | PulseAudio-oriented upstream path | PipeWire native API for capture |
+| Visualizer targeting | System audio-oriented | Attempts to target the active MPRIS player's audio |
+| Vertical layouts | Dot matrix idle display | Dot matrix idle display plus expanded-section visualizer support |
+| Themes in this checkout | Upstream ships a larger theme set | This fork currently ships base light styling plus `themes/dark.css` |
+| Player preference | Config preference list upstream | Last selected player is persisted in `~/.config/hyprwave/preferred_player` |
 
-Check out the subreddit for posting your rices, themes, favorite albums -> https://www.reddit.com/r/hyprwave/
+## Features
 
-### Per-Application Volume Control
-
-When you adjust volume in HyprWave HiFi, it controls **only the music player's volume**, not your entire system. This means:
-- Your notification sounds stay at their level
-- Game audio remains unaffected
-- Video call volume is independent
-- Perfect for multi-application audio setups
-
-### PipeWire Native Visualizer
-
-The visualizer uses PipeWire's native API directly (not the PulseAudio compatibility layer), providing:
-- Lower latency audio capture
-- Automatic Gain Control (AGC) - visualization responds to audio dynamics, not volume level
-- Per-player audio capture (visualizes only your music player, not system sounds)
+- Per-application volume using PipeWire/Pulse sink-inputs via `pactl`, with MPRIS fallback.
+- PipeWire-native visualizer with automatic gain control.
+- MPRIS playback controls for Spotify, Roon, VLC, browsers, and other compatible players.
+- Click/drag progress seeking when the active player supports seeking.
+- Album art and metadata display.
+- Right, left, top, and bottom layer-shell layouts.
+- Vertical dot matrix idle display.
+- Now-playing notifications.
+- Tight Wayland input regions so transparent layer areas do not block desktop clicks.
+- Light base styling and optional dark theme.
 
 ## Screenshots
 
@@ -46,73 +48,38 @@ The visualizer uses PipeWire's native API directly (not the PulseAudio compatibi
 <td align="center"><strong>Light Expanded</strong></td>
 </tr>
 <tr>
-<td><img src="screenshots/dark-collapsed.png" width="100"></td>
-<td><img src="screenshots/dark-expanded.png" width="160"></td>
-<td><img src="screenshots/light-collapsed.png" width="100"></td>
-<td><img src="screenshots/light-expanded.png" width="160"></td>
+<td><img src="screenshots/dark-collapsed.png" alt="Dark collapsed view" width="100"></td>
+<td><img src="screenshots/dark-expanded.png" alt="Dark expanded view" width="160"></td>
+<td><img src="screenshots/light-collapsed.png" alt="Light collapsed view" width="100"></td>
+<td><img src="screenshots/light-expanded.png" alt="Light expanded view" width="160"></td>
 </tr>
 </table>
-
-## Features
-
-- **Per-Application Volume** - Control only your music player's volume
-- **PipeWire Native Visualizer** - Real-time frequency visualization with AGC
-- **MPRIS Integration** - Works with Spotify, Roon, VLC, and any MPRIS player
-- **Large Album Art** - Prominent artwork display for your music
-- **Progress Seeking** - Click or drag the progress bar to seek
-- **Now Playing Notifications** - Elegant slide-in notifications on track change
-- **Configurable Layout** - Position on any screen edge
-- **Light & Dark Themes** - Built-in theme support
-- **Keybind Support** - Toggle visibility and expand with keyboard shortcuts
-- **Minimal Resources** - ~80-95MB RAM, <0.3% CPU idle
-
-## Themes
-
-Check out THEMES.md for community themes! Style hyprwave to your taste via the style.css.
 
 ## Installation
 
 ### Dependencies
 
+Build dependencies:
+
 ```bash
 # Arch Linux
-sudo pacman -S gtk4 gtk4-layer-shell pipewire
+sudo pacman -S base-devel gtk4 gtk4-layer-shell pipewire libpulse
 
 # Ubuntu / Debian
-sudo apt install libgtk-4-dev gtk4-layer-shell libpipewire-0.3-dev
+sudo apt install build-essential pkg-config libgtk-4-dev gtk4-layer-shell libpipewire-0.3-dev libgdk-pixbuf-2.0-dev pulseaudio-utils
 
 # Fedora
-sudo dnf install gtk4-devel gtk4-layer-shell-devel pipewire-devel
-```
-### Arch(-based)
-Also, Massive update - hyprwave is now on AUR.
-Simply install it with:
-
-```bash
-yay -S hyprwave
+sudo dnf install gcc make pkgconf-pkg-config gtk4-devel gtk4-layer-shell-devel pipewire-devel gdk-pixbuf2-devel pulseaudio-utils
 ```
 
-It will not give you the bleeding new updates, but the latest releases.
+Runtime notes:
 
-### NixOS
-Installing the package:
-1. Download the `default.nix` File.
-2. Add the package to your `configuration.nix` or `flake.nix`:
-```nix
-let
-  hyprwave = pkgs.callPackage ./path/to/default.nix { };
-in
-...
-environment.systemPackages = with pkgs; [
-  hyprwave
-];
-```
-3. Rebuild.
+- PipeWire must be running for visualization.
+- `pactl` is required for per-application volume. On PipeWire systems this is
+  normally provided by PulseAudio compatibility packages such as `libpulse` or
+  `pulseaudio-utils`; `pipewire-pulse` provides the compatible server.
 
-Testing the package without installing:
-1. Run `nix run github:shantanubaddar/hyprwave`.
-
-### Building from Source
+### Source Install
 
 ```bash
 git clone https://github.com/godlyfast/hyprwave-hifi.git
@@ -121,41 +88,99 @@ make
 make install
 ```
 
-This installs:
-- Binary to `~/.local/bin/hyprwave`
-- Resources to `~/.local/share/hyprwave/`
-- Toggle script `hyprwave-toggle` for keybinds
-- Default config at `~/.config/hyprwave/config.conf`
+`make install` installs:
+
+- `hyprwave` to `~/.local/bin/hyprwave`
+- `hyprwave-toggle` to `~/.local/bin/hyprwave-toggle`
+- resources to `~/.local/share/hyprwave/`
+
+The app creates `~/.config/hyprwave/config.conf` on first run if it does not
+already exist.
+
+### Nix
+
+This fork's flake builds the local checkout:
+
+```bash
+nix build
+nix run
+```
+
+From GitHub, use the fork URL:
+
+```bash
+nix run github:godlyfast/hyprwave-hifi
+```
+
+The upstream package remains available separately as
+`github:shantanubaddar/hyprwave`.
+
+### AUR
+
+`yay -S hyprwave` installs the upstream `hyprwave` package, not necessarily this
+HiFi fork. Use the source or Nix instructions above when you need the fork's
+PipeWire/per-application-volume changes.
 
 ## Usage
+
+Start HyprWave, then start any MPRIS-compatible music player:
 
 ```bash
 hyprwave
 ```
 
-Then start any MPRIS-compatible music player (Spotify, Roon, VLC, etc.).
+The toggle helper talks to the running process with Unix signals:
 
-### Keybinds
-
-Add to your Hyprland config (`~/.config/hypr/hyprland.conf`):
-
-```conf
-bind = SUPER_ALT, M, exec, hyprwave-toggle visibility
-bind = SUPER_CTRL, M, exec, hyprwave-toggle expand
+```bash
+hyprwave-toggle visibility
+hyprwave-toggle expand
 ```
 
-| Keybind | Action |
-|---------|--------|
-| `Super+Alt+M` | Toggle visibility (hide/show) |
-| `Super+Ctrl+M` | Toggle expanded view |
+If HyprWave is not running, `hyprwave-toggle visibility` auto-starts it when the
+binary is available in `PATH` or `~/.local/bin`.
 
-### Auto-start
+## Keybinds
+
+Bind the helper script in your compositor config.
+
+### Hyprland
+
+```conf
+bind = SUPER_SHIFT, M, exec, hyprwave-toggle visibility
+bind = SUPER, M, exec, hyprwave-toggle expand
+```
+
+Reload with `hyprctl reload`.
+
+### Niri
+
+```kdl
+binds {
+    Mod+Shift+M { spawn "hyprwave-toggle" "visibility"; }
+    Mod+M { spawn "hyprwave-toggle" "expand"; }
+}
+```
+
+Reload with `niri msg action reload-config`.
+
+### Sway
+
+```conf
+bindsym $mod+Shift+M exec hyprwave-toggle visibility
+bindsym $mod+M exec hyprwave-toggle expand
+```
+
+Reload with `swaymsg reload`.
+
+## Auto-Start
 
 ```conf
 # Hyprland
 exec-once = hyprwave
+```
 
-# Niri
+```kdl
+// Niri
 spawn-at-startup "hyprwave"
 ```
 
@@ -167,191 +192,132 @@ Edit `~/.config/hyprwave/config.conf`:
 # HyprWave Configuration File
 
 [General]
-# Position: right, left, top, bottom
+# Edge to anchor HyprWave to: right, left, top, bottom
 edge = right
 
-# Margin from screen edge (pixels)
+# Margin from the selected screen edge in pixels
 margin = 10
 
 # Theme: light or dark
-theme = dark
+theme = light
 
 # Size: tiny, small, default, large
 size = default
+
+# Volume method: auto, pipewire, mpris
+volume_method = auto
 
 [Notifications]
 enabled = true
 now_playing = true
 
 [Visualizer]
-# Visualizer appears in expanded section below album art
+# Expanded-section visualizer in all layouts
 enabled = true
 
-# Seconds before visualizer activates (0 to disable auto-activation)
+# Horizontal layouts only: seconds before idle visualizer mode appears.
+# Set to 0 to disable automatic idle visualizer mode.
 idle_timeout = 30
 
 [VerticalDisplay]
+# Vertical layouts only: dot matrix idle display
 enabled = true
 idle_timeout = 5
-
-[MusicPlayer]
-# Comma-separated list of preferred players (first = highest priority)
-preference = spotify,vlc
 ```
+
+Player selection is not driven by `[MusicPlayer]` in this fork. The last chosen
+MPRIS player is saved to `~/.config/hyprwave/preferred_player`.
 
 ### Layout Options
 
-| Edge | Layout | Visualizer |
-|------|--------|------------|
-| `right` / `left` | Vertical | In expanded section (below album art) |
-| `top` / `bottom` | Horizontal | In expanded section |
+| Edge | Layout | Idle mode |
+| --- | --- | --- |
+| `right` / `left` | Vertical | Dot matrix display |
+| `top` / `bottom` | Horizontal | Visualizer bar |
 
-**Size Options:**
-- **`tiny`**, **`small`**, **`default`**, **`large`** - Scale the control bar, round buttons, icons, spacing, and vertical idle display together
+The expanded section can show the visualizer in both vertical and horizontal
+layouts when the active player's audio stream can be matched.
 
-**Notification Options:**
-- **`enabled = true`** - Master switch for all notifications
-- **`now_playing = true`** - Show "Now Playing" notifications when tracks change
+### Volume Methods
 
-**Visualizer Options:**
-- **`enabled = true`** - Enable audio visualizer
-- **`idle_timeout = 30`** - Seconds of inactivity before visualizer appears (0 to disable)
+| Method | Behavior |
+| --- | --- |
+| `auto` | Try PipeWire/Pulse sink-input control first, then fall back to MPRIS volume |
+| `pipewire` | Require a matching sink-input; useful for Chromium/Electron players |
+| `mpris` | Use only the player's MPRIS `Volume` property |
 
-**Dot Matrix Display Options (Vertical):**
-- **`enabled = true`** - Enable dot matrix display for vertical layouts
-- **`idle_timeout = 5`** - Seconds of inactivity before display appears
+## Themes
 
-### Keybinds
+The base stylesheet is `style.css`. `theme = light` uses that base style.
+`theme = dark` loads `themes/dark.css`.
 
-HyprWave supports keybinds for toggling visibility and expanding details. Add these to your compositor config:
-
-#### Hyprland
-
-Add to `~/.config/hypr/hyprland.conf`:
-
-```conf
-# HyprWave keybinds
-bind = SUPER_SHIFT, M, exec, hyprwave-toggle visibility
-bind = SUPER, M, exec, hyprwave-toggle expand
-```
-
-Then reload: `hyprctl reload`
-
-#### Niri
-
-Add to `~/.config/niri/config.kdl`:
-
-```kdl
-binds {
-    Mod+Shift+M { spawn "hyprwave-toggle" "visibility"; }
-    Mod+M { spawn "hyprwave-toggle" "expand"; }
-}
-```
-
-Then reload: `niri msg action reload-config`
-
-#### Sway
-
-Add to `~/.config/sway/config`:
-
-```conf
-# HyprWave keybinds
-bindsym $mod+Shift+M exec hyprwave-toggle visibility
-bindsym $mod+M exec hyprwave-toggle expand
-```
-
-Then reload: `swaymsg reload`
-
-#### What the Keybinds Do:
-
-- **Toggle Visibility** (`Super+Shift+M`) - Smoothly hides/shows entire HyprWave with slide animation
-- **Toggle Expand** (`Super+M`) - Shows/hides album details
-  - Works even in visualizer mode - expanded section appears without exiting idle mode
-  - If HyprWave is hidden, this will show it AND expand in one smooth motion
-
-### Keybind Demo
-
-https://github.com/user-attachments/assets/5bd27ec4-6b51-46fb-bf6e-fcb3cb3252b1
-
-### Auto-start
-
-#### Hyprland
-
-Add to `~/.config/hypr/hyprland.conf`:
-```conf
-exec-once = hyprwave
-```
-
-#### Niri
-
-Add to `~/.config/niri/config.kdl`:
-```kdl
-spawn-at-startup "hyprwave"
-```
+Additional community theme snippets live in [THEMES.md](THEMES.md). In this fork
+they are examples to copy into a CSS file, not built-in toggle targets. The
+current `hyprwave-toggle` helper supports only `visibility` and `expand`.
 
 ## Troubleshooting
 
-### Black box around HyprWave
+### Black Box Around HyprWave
 
-Add to `hyprland.conf`:
+For Hyprland, disable blur on the layer surfaces:
+
 ```conf
 layerrule = noblur, hyprwave
 layerrule = noblur, hyprwave-notification
 ```
 
-### Visualizer not showing
+### Visualizer Not Showing
 
-1. Ensure PipeWire is running: `systemctl --user status pipewire`
-2. Expand the panel (visualizer appears below album art in expanded view)
-3. Check `enabled = true` under `[Visualizer]` in config
-4. Play music - visualizer activates when audio is detected
+1. Confirm PipeWire is running: `systemctl --user status pipewire`.
+2. Confirm `[Visualizer] enabled = true`.
+3. Play audio from the selected MPRIS player.
+4. If the player has no matching sink-input, the visualizer may stay hidden.
 
-### Volume control not working
+### Volume Control Not Working
 
-Per-application volume requires `pactl` (part of pipewire-pulse):
+Check `pactl` first:
+
 ```bash
-# Check if available
 which pactl
-
-# Install if missing (Arch)
-sudo pacman -S pipewire-pulse
+pactl list sink-inputs
 ```
+
+If no matching sink-input is found, use `volume_method = mpris` for players with
+a working MPRIS `Volume` property, or leave `volume_method = auto` for fallback.
 
 ## Technical Details
 
-- **Language:** C
-- **GUI:** GTK4 with gtk4-layer-shell
-- **Audio Visualizer:** PipeWire native API with AGC
-- **Volume Control:** PipeWire via pactl (per-application sink-inputs)
-- **Player Control:** D-Bus MPRIS2 protocol
-- **Memory:** ~80-95MB (base), ~100-110MB with visualizer
-- **CPU:** <0.3% idle, <2% with visualizer
+- Language: C11
+- GUI: GTK4
+- Layer shell: gtk4-layer-shell
+- Player control: D-Bus MPRIS2
+- Visualizer: libpipewire native capture with AGC
+- Per-application volume: `pactl` sink-input control with MPRIS fallback
+- Install resources: local checkout, `~/.local/share/hyprwave/`, then `/usr/share/hyprwave/`
+- Memory target: roughly 80-95 MB idle
+- CPU target: below 0.3% idle on the author's setup
 
 ### AGC Parameters
 
-The Automatic Gain Control normalizes audio levels so visualization responds to dynamics, not volume:
-
 | Parameter | Value | Purpose |
-|-----------|-------|---------|
-| Attack | 0.9 | Fast response to louder audio |
-| Decay | 0.9995 | Slow decay during quiet parts |
-| Min Threshold | 0.0001 | Avoid amplifying silence |
+| --- | --- | --- |
+| Attack | `0.9` | Fast response to louder audio |
+| Decay | `0.9995` | Slow decay during quiet parts |
+| Min threshold | `0.0001` | Avoid amplifying silence |
 
 ## Credits
 
-- **Original project:** [hyprwave](https://github.com/shantanubaddar/hyprwave) by shantanubaddar
-- **GTK4:** [gtk.org](https://gtk.org/)
-- **Layer shell:** [gtk4-layer-shell](https://github.com/wmww/gtk-layer-shell)
-- **Audio:** [PipeWire](https://pipewire.org/)
+- Original project: [hyprwave](https://github.com/shantanubaddar/hyprwave) by shantanubaddar
+- GTK4: [gtk.org](https://gtk.org/)
+- Layer shell: [gtk4-layer-shell](https://github.com/wmww/gtk4-layer-shell)
+- Audio: [PipeWire](https://pipewire.org/)
 
 ## Contributing
 
-Contributions welcome! Feel free to:
-- Report bugs via [GitHub Issues](https://github.com/godlyfast/hyprwave-hifi/issues)
-- Submit feature requests
-- Create pull requests
-- Share your custom themes/icons
+- Report fork-specific bugs via [GitHub Issues](https://github.com/godlyfast/hyprwave-hifi/issues)
+- Send upstream-only issues to [shantanubaddar/hyprwave](https://github.com/shantanubaddar/hyprwave)
+- Share custom themes and screenshots on [r/hyprwave](https://www.reddit.com/r/hyprwave/)
 
 ## License
 
-GPL-3.0 - See [LICENSE](LICENSE)
+GPL-3.0. See [LICENSE](LICENSE).

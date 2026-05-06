@@ -1,10 +1,22 @@
 # Themes
 
-Some themes I made!
+This file is a community theme gallery and scratchpad. In this HiFi fork, the
+repository currently ships only the base light styling in `style.css` plus
+`themes/dark.css`; the snippets below are not installed theme files unless you
+copy them into one.
 
-## Noir-esque 
+To use a snippet, save it as a CSS file such as
+`~/.local/share/hyprwave/themes/noir-esque.css`, then set `theme = noir-esque`
+in `~/.config/hyprwave/config.conf` and restart HyprWave. The current
+`hyprwave-toggle` helper in this fork supports `visibility` and `expand`; it
+does not provide upstream's dynamic `set-theme` command.
+
+These theme names and screenshots come from upstream/community work. Keep that
+separate from the list of theme files actually present in this checkout.
+
+## Noir-esque
+
 <img width="657" height="369" alt="image" src="https://github.com/user-attachments/assets/4ad8b0c0-b399-4ff8-bb44-6d2a79815779" />
-
 
 ```css
 
@@ -83,6 +95,7 @@ Some themes I made!
 ```
 
 ## Emerald Splash
+
 <img width="650" height="366" alt="image" src="https://github.com/user-attachments/assets/bc8fd25d-681c-4111-839a-9ab37df626b6" />
 
 ```css
@@ -284,7 +297,6 @@ Some themes I made!
 ## Lucid Dreaming
 
 <img width="664" height="372" alt="image" src="https://github.com/user-attachments/assets/ef3b376c-dcaa-4412-bdee-0f669ef5e8da" />
-
 
 ```css
 /* ========================================
@@ -588,7 +600,6 @@ Some themes I made!
 
 <img width="652" height="366" alt="image" src="https://github.com/user-attachments/assets/dd31d18f-5be3-467f-a2c2-27567df27636" />
 
-
 ```css
 /* ========================================
    HyprWave - DeathStar Theme
@@ -788,9 +799,9 @@ For my GOAT Don Toliver, a special theme for his upcoming album, OCTANE.
 }
 ```
 
-For people feeling like making their own themes and wanting to share it to the world, make sure to follow the above formatting of themes, and I will make sure to merge them!
+For new themes, use the same variable structure as the examples above and make
+clear whether the theme is shipped in this fork or only published as a snippet.
 
-# Community Themes
+## Community Themes
 
 Empty for now!
-

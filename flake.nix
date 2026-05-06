@@ -1,5 +1,5 @@
 {
-  description = "Hyprwave Flake";
+  description = "HyprWave HiFi";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -17,7 +17,7 @@
         type = "app";
         program = "${hyprwave}/bin/hyprwave";
         meta = {
-          description = " A music control bar for hyprland.";
+          description = "GTK4 Wayland music overlay with PipeWire visualization.";
           mainProgram = "hyprwave";
         };
       };
