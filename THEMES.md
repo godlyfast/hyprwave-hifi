@@ -1,15 +1,15 @@
 # Themes
 
 This file is a community theme gallery and scratchpad. In this HiFi fork, the
-repository currently ships only the base light styling in `style.css` plus
-`themes/dark.css`; the snippets below are not installed theme files unless you
-copy them into one.
+repository currently ships the base light styling in `style.css` plus CSS files
+under `themes/`; the snippets below are not installed theme files unless you copy
+them into one.
 
 To use a snippet, save it as a CSS file such as
 `~/.local/share/hyprwave/themes/noir-esque.css`, then set `theme = noir-esque`
 in `~/.config/hyprwave/config.conf` and restart HyprWave. The current
-`hyprwave-toggle` helper in this fork supports `visibility` and `expand`; it
-does not provide upstream's dynamic `set-theme` command.
+`hyprwave-toggle` helper in this fork does not provide upstream's dynamic
+`set-theme` command.
 
 These theme names and screenshots come from upstream/community work. Keep that
 separate from the list of theme files actually present in this checkout.

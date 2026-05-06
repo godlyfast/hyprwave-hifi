@@ -1,7 +1,38 @@
 #include "art.h"
 #include <gio/gio.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
+#include <libsoup/soup.h>
 #include <string.h>
+
+static GdkTexture* create_texture_from_pixbuf(GdkPixbuf *pixbuf) {
+    if (!pixbuf) return NULL;
+
+    int width = gdk_pixbuf_get_width(pixbuf);
+    int height = gdk_pixbuf_get_height(pixbuf);
+    int rowstride = gdk_pixbuf_get_rowstride(pixbuf);
+    int channels = gdk_pixbuf_get_n_channels(pixbuf);
+    if (width <= 0 || height <= 0 || rowstride <= 0 || (channels != 3 && channels != 4)) {
+        return NULL;
+    }
+
+    GdkMemoryFormat format = channels == 4 ? GDK_MEMORY_R8G8B8A8 : GDK_MEMORY_R8G8B8;
+    gsize packed_rowstride = (gsize)width * (gsize)channels;
+    gsize packed_size = packed_rowstride * (gsize)height;
+    const guchar *src_pixels = gdk_pixbuf_get_pixels(pixbuf);
+    guchar *packed_pixels = g_malloc_n((gsize)height, packed_rowstride);
+
+    for (int y = 0; y < height; y++) {
+        memcpy(packed_pixels + (gsize)y * packed_rowstride,
+               src_pixels + (gsize)y * (gsize)rowstride,
+               packed_rowstride);
+    }
+
+    GBytes *bytes = g_bytes_new_take(packed_pixels, packed_size);
+    GdkTexture *texture = gdk_memory_texture_new(width, height, format, bytes, packed_rowstride);
+
+    g_bytes_unref(bytes);
+    return texture;
+}
 
 void clear_album_art_container(GtkWidget *container) {
     GtkWidget *child = gtk_widget_get_first_child(container);
@@ -29,25 +60,34 @@ GtkWidget* load_album_art_to_container(const gchar *art_url, GtkWidget *containe
         }
         g_free(file_path);
     } else if (g_str_has_prefix(art_url, "http://") || g_str_has_prefix(art_url, "https://")) {
-        GFile *file = g_file_new_for_uri(art_url);
+        SoupSession *session = soup_session_new();
+        SoupMessage *message = soup_message_new("GET", art_url);
         GError *error = NULL;
-        GInputStream *stream = G_INPUT_STREAM(g_file_read(file, NULL, &error));
-        if (stream && !error) {
-            pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, size, size, FALSE, NULL, &error);
+
+        if (message) {
+            GInputStream *stream = soup_session_send(session, message, NULL, &error);
+            SoupStatus status = soup_message_get_status(message);
+            if (stream && SOUP_STATUS_IS_SUCCESSFUL(status) && !error) {
+                pixbuf = gdk_pixbuf_new_from_stream_at_scale(stream, size, size, FALSE, NULL, &error);
+            }
+            if (stream) {
+                g_object_unref(stream);
+            }
             if (error) {
                 g_error_free(error);
                 pixbuf = NULL;
             }
-            g_object_unref(stream);
-        } else if (error) {
-            g_error_free(error);
+            g_object_unref(message);
         }
-        g_object_unref(file);
+        g_object_unref(session);
     }
 
-    if (!pixbuf) return NULL;
+    GdkTexture *texture = create_texture_from_pixbuf(pixbuf);
+    if (pixbuf) {
+        g_object_unref(pixbuf);
+    }
+    if (!texture) return NULL;
 
-    GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
     GtkWidget *image = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
     gtk_widget_set_size_request(image, size, size);
 
@@ -69,7 +109,6 @@ GtkWidget* load_album_art_to_container(const gchar *art_url, GtkWidget *containe
     gtk_box_append(GTK_BOX(container), image);
 
     g_object_unref(texture);
-    g_object_unref(pixbuf);
 
     return image;
 }

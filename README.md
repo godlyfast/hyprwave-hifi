@@ -22,7 +22,7 @@ project unless explicitly stated otherwise. Use this repository URL or the
 | Visualizer backend | PulseAudio-oriented upstream path | PipeWire native API for capture |
 | Visualizer targeting | System audio-oriented | Attempts to target the active MPRIS player's audio |
 | Vertical layouts | Dot matrix idle display | Dot matrix idle display plus expanded-section visualizer support |
-| Themes in this checkout | Upstream ships a larger theme set | This fork currently ships base light styling plus `themes/dark.css` |
+| Themes in this checkout | Upstream ships a larger theme set | This fork ships base light styling plus CSS files under `themes/` |
 | Player preference | Config preference list upstream | Last selected player is persisted in `~/.config/hyprwave/preferred_player` |
 
 ## Features
@@ -36,7 +36,7 @@ project unless explicitly stated otherwise. Use this repository URL or the
 - Vertical dot matrix idle display.
 - Now-playing notifications.
 - Tight Wayland input regions so transparent layer areas do not block desktop clicks.
-- Light base styling and optional dark theme.
+- Light base styling and optional theme CSS.
 
 ## Screenshots
 
@@ -63,13 +63,13 @@ Build dependencies:
 
 ```bash
 # Arch Linux
-sudo pacman -S base-devel gtk4 gtk4-layer-shell pipewire libpulse
+sudo pacman -S base-devel gtk4 gtk4-layer-shell pipewire libsoup3 libpulse
 
 # Ubuntu / Debian
-sudo apt install build-essential pkg-config libgtk-4-dev gtk4-layer-shell libpipewire-0.3-dev libgdk-pixbuf-2.0-dev pulseaudio-utils
+sudo apt install build-essential pkg-config libgtk-4-dev gtk4-layer-shell libpipewire-0.3-dev libgdk-pixbuf-2.0-dev libsoup-3.0-dev pulseaudio-utils
 
 # Fedora
-sudo dnf install gcc make pkgconf-pkg-config gtk4-devel gtk4-layer-shell-devel pipewire-devel gdk-pixbuf2-devel pulseaudio-utils
+sudo dnf install gcc make pkgconf-pkg-config gtk4-devel gtk4-layer-shell-devel pipewire-devel gdk-pixbuf2-devel libsoup3-devel pulseaudio-utils
 ```
 
 Runtime notes:
@@ -146,10 +146,14 @@ The toggle helper talks to the running process with Unix signals:
 ```bash
 hyprwave-toggle visibility
 hyprwave-toggle expand
+hyprwave-toggle play
+hyprwave-toggle next
+hyprwave-toggle prev
 ```
 
 If HyprWave is not running, `hyprwave-toggle visibility` auto-starts it when the
-binary is available in `PATH` or `~/.local/bin`.
+binary is available in `PATH` or `~/.local/bin`. Media actions require a running
+HyprWave instance and an active MPRIS player.
 
 ## Keybinds
 
@@ -160,6 +164,9 @@ Bind the helper script in your compositor config.
 ```conf
 bind = SUPER_SHIFT, M, exec, hyprwave-toggle visibility
 bind = SUPER, M, exec, hyprwave-toggle expand
+bind = , XF86AudioPlay, exec, hyprwave-toggle play
+bind = , XF86AudioNext, exec, hyprwave-toggle next
+bind = , XF86AudioPrev, exec, hyprwave-toggle prev
 ```
 
 Reload with `hyprctl reload`.
@@ -170,6 +177,9 @@ Reload with `hyprctl reload`.
 binds {
     Mod+Shift+M { spawn "hyprwave-toggle" "visibility"; }
     Mod+M { spawn "hyprwave-toggle" "expand"; }
+    XF86AudioPlay { spawn "hyprwave-toggle" "play"; }
+    XF86AudioNext { spawn "hyprwave-toggle" "next"; }
+    XF86AudioPrev { spawn "hyprwave-toggle" "prev"; }
 }
 ```
 
@@ -180,6 +190,9 @@ Reload with `niri msg action reload-config`.
 ```conf
 bindsym $mod+Shift+M exec hyprwave-toggle visibility
 bindsym $mod+M exec hyprwave-toggle expand
+bindsym XF86AudioPlay exec hyprwave-toggle play
+bindsym XF86AudioNext exec hyprwave-toggle next
+bindsym XF86AudioPrev exec hyprwave-toggle prev
 ```
 
 Reload with `swaymsg reload`.
@@ -265,7 +278,8 @@ The base stylesheet is `style.css`. `theme = light` uses that base style.
 
 Additional community theme snippets live in [THEMES.md](THEMES.md). In this fork
 they are examples to copy into a CSS file, not built-in toggle targets. The
-current `hyprwave-toggle` helper supports only `visibility` and `expand`.
+current `hyprwave-toggle` helper does not provide upstream's dynamic
+`set-theme` command.
 
 ## Troubleshooting
 

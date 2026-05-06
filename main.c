@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <glib-unix.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include "layout.h"
@@ -81,6 +84,9 @@ typedef struct {
 static void update_position(AppState *state);
 static void update_metadata(AppState *state);
 static void update_playback_status(AppState *state);
+static void on_play_clicked(GtkButton *button, gpointer user_data);
+static void on_next_clicked(GtkButton *button, gpointer user_data);
+static void on_prev_clicked(GtkButton *button, gpointer user_data);
 static void on_expand_clicked(GtkButton *button, gpointer user_data);
 static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_properties,
                                   GStrv invalidated_properties, gpointer user_data);
@@ -104,6 +110,11 @@ static void exit_vertical_idle_mode(AppState *state);
 static void find_active_player(AppState *state);
 
 static AppState *global_state = NULL;
+static int media_signal_pipe[2] = {-1, -1};
+static volatile sig_atomic_t media_signal_write_fd = -1;
+static volatile sig_atomic_t media_signal_play_signo = 0;
+static volatile sig_atomic_t media_signal_next_signo = 0;
+static volatile sig_atomic_t media_signal_prev_signo = 0;
 
 static void queue_input_region_update(AppState *state);
 
@@ -719,8 +730,101 @@ static gboolean handle_sigusr2(gpointer user_data) {
     return G_SOURCE_CONTINUE;
 }
 
+static void handle_media_signal(int sig) {
+    int saved_errno = errno;
 
+    char action = 0;
+    if (sig == media_signal_play_signo) {
+        action = 'p';
+    } else if (sig == media_signal_next_signo) {
+        action = 'n';
+    } else if (sig == media_signal_prev_signo) {
+        action = 'b';
+    }
 
+    if (action != 0 && media_signal_write_fd >= 0) {
+        ssize_t ignored = write((int)media_signal_write_fd, &action, 1);
+        (void)ignored;
+    }
+
+    errno = saved_errno;
+}
+
+static gboolean handle_media_signal_fd(gint fd, GIOCondition condition, gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+    if ((condition & (G_IO_HUP | G_IO_ERR)) != 0 || !state) {
+        return G_SOURCE_CONTINUE;
+    }
+
+    char actions[32];
+    ssize_t count = 0;
+    while ((count = read(fd, actions, sizeof(actions))) > 0) {
+        for (ssize_t i = 0; i < count; i++) {
+            switch (actions[i]) {
+                case 'p':
+                    on_play_clicked(NULL, state);
+                    break;
+                case 'n':
+                    on_next_clicked(NULL, state);
+                    break;
+                case 'b':
+                    on_prev_clicked(NULL, state);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        g_warning("Failed to read media control signal pipe: %s", g_strerror(errno));
+    }
+
+    return G_SOURCE_CONTINUE;
+}
+
+static void setup_media_signal_handlers(AppState *state) {
+    if (media_signal_pipe[0] >= 0) return;
+
+    if (pipe(media_signal_pipe) != 0) {
+        g_warning("Failed to create media control signal pipe: %s", g_strerror(errno));
+        media_signal_pipe[0] = -1;
+        media_signal_pipe[1] = -1;
+        return;
+    }
+
+    for (int i = 0; i < 2; i++) {
+        int flags = fcntl(media_signal_pipe[i], F_GETFL, 0);
+        if (flags >= 0) {
+            fcntl(media_signal_pipe[i], F_SETFL, flags | O_NONBLOCK);
+        }
+
+        int fd_flags = fcntl(media_signal_pipe[i], F_GETFD, 0);
+        if (fd_flags >= 0) {
+            fcntl(media_signal_pipe[i], F_SETFD, fd_flags | FD_CLOEXEC);
+        }
+    }
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = handle_media_signal;
+    sigemptyset(&action.sa_mask);
+
+    int play_signo = SIGRTMIN;
+    int next_signo = play_signo + 1;
+    int prev_signo = play_signo + 2;
+    media_signal_play_signo = play_signo;
+    media_signal_next_signo = next_signo;
+    media_signal_prev_signo = prev_signo;
+    media_signal_write_fd = media_signal_pipe[1];
+
+    sigaction(play_signo, &action, NULL);
+    sigaction(next_signo, &action, NULL);
+    sigaction(prev_signo, &action, NULL);
+
+    g_unix_fd_add(media_signal_pipe[0], G_IO_IN | G_IO_HUP | G_IO_ERR,
+                  handle_media_signal_fd, state);
+}
 
 // ========================================
 // VISUALIZER CONTROL (for expanded section)
@@ -2023,6 +2127,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     global_state = state;
     g_unix_signal_add(SIGUSR1, handle_sigusr1, NULL);
     g_unix_signal_add(SIGUSR2, handle_sigusr2, NULL);
+    setup_media_signal_handlers(state);
 
     // Setup D-Bus name watcher to monitor player appearance/disappearance
     GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);

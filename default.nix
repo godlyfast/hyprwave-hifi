@@ -15,6 +15,7 @@ pkgs.stdenv.mkDerivation rec {
     glib
     gtk4
     gtk4-layer-shell
+    libsoup_3
     pipewire
   ];
 

@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = `pkg-config --cflags gtk4 gtk4-layer-shell-0 libpipewire-0.3`
-LIBS = `pkg-config --libs gtk4 gtk4-layer-shell-0 gio-2.0 gdk-pixbuf-2.0 libpipewire-0.3` -lm
+CFLAGS = `pkg-config --cflags gtk4 gtk4-layer-shell-0 libpipewire-0.3 libsoup-3.0`
+LIBS = `pkg-config --libs gtk4 gtk4-layer-shell-0 gio-2.0 gdk-pixbuf-2.0 libpipewire-0.3 libsoup-3.0` -lm
 TARGET = hyprwave
 SRC = main.c layout.c paths.c notification.c art.c volume.c visualizer.c pipewire_volume.c vertical_display.c
 
@@ -37,7 +37,7 @@ install: $(TARGET)
 	install -m644 icons/volume-low.svg $(DATADIR)/icons/
 	install -m644 icons/volume-mute.svg $(DATADIR)/icons/
 	@mkdir -p $(DATADIR)/themes
-	install -m644 themes/dark.css $(DATADIR)/themes/
+	install -m644 themes/*.css $(DATADIR)/themes/
 	mkdir -p $(HOME)/.local/share/fonts/hyprwave
 	cp fonts/VT323-Regular.ttf $(HOME)/.local/share/fonts/hyprwave/
 	fc-cache -f $(HOME)/.local/share/fonts/hyprwave

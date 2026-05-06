@@ -2,13 +2,14 @@
 # HyprWave Toggle Script
 
 ACTION="$1"
+USAGE="Usage: hyprwave-toggle {visibility|expand|play|next|prev}"
 
 if [ -z "$ACTION" ]; then
-    echo "Usage: hyprwave-toggle {visibility|expand}"
+    echo "$USAGE"
     exit 1
 fi
 
-PID=$(pgrep -x hyprwave)
+PID=$(pgrep -x hyprwave | head -n 1)
 if [ -z "$PID" ]; then
     # No instance running. Auto-spawn on visibility toggle so the keybind
     # acts as "open hyprwave" on first press; subsequent presses toggle.
@@ -38,9 +39,18 @@ case "$ACTION" in
     expand)
         kill -USR2 "$PID"
         ;;
+    play)
+        kill -SIGRTMIN "$PID"
+        ;;
+    next)
+        kill -SIGRTMIN+1 "$PID"
+        ;;
+    prev)
+        kill -SIGRTMIN+2 "$PID"
+        ;;
     *)
         echo "Invalid action: $ACTION"
-        echo "Usage: hyprwave-toggle {visibility|expand}"
+        echo "$USAGE"
         exit 1
         ;;
 esac
