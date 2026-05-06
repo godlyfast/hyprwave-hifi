@@ -247,11 +247,24 @@ void layout_free_config(LayoutConfig *config) {
 // ========================================
 
 void layout_setup_window_anchors(GtkWindow *window, LayoutConfig *config) {
-    // Set anchors based on edge
-    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_RIGHT, config->edge == EDGE_RIGHT);
-    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_LEFT, config->edge == EDGE_LEFT);
-    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_TOP, config->edge == EDGE_TOP);
-    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_BOTTOM, config->edge == EDGE_BOTTOM);
+    gboolean right = config->edge == EDGE_RIGHT;
+    gboolean left = config->edge == EDGE_LEFT;
+    gboolean top = config->edge == EDGE_TOP;
+    gboolean bottom = config->edge == EDGE_BOTTOM;
+
+    if (config->is_vertical) {
+        top = TRUE;
+        bottom = TRUE;
+    } else {
+        left = TRUE;
+        right = TRUE;
+    }
+
+    // Keep the layer surface stable on the perpendicular axis while revealers resize.
+    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_RIGHT, right);
+    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_LEFT, left);
+    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_TOP, top);
+    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_BOTTOM, bottom);
 
     // Set margin
     if (config->edge == EDGE_RIGHT) {
@@ -314,8 +327,15 @@ GtkWidget* layout_create_control_bar(LayoutConfig *config,
     gtk_widget_add_css_class(control_bar, size_class);
     g_free(size_class);
 
-    gtk_widget_set_halign(control_bar, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(control_bar, GTK_ALIGN_CENTER);
+    GtkAlign halign = GTK_ALIGN_CENTER;
+    GtkAlign valign = GTK_ALIGN_CENTER;
+    if (config->is_vertical) {
+        halign = config->edge == EDGE_RIGHT ? GTK_ALIGN_END : GTK_ALIGN_START;
+    } else {
+        valign = config->edge == EDGE_BOTTOM ? GTK_ALIGN_END : GTK_ALIGN_START;
+    }
+    gtk_widget_set_halign(control_bar, halign);
+    gtk_widget_set_valign(control_bar, valign);
     gtk_widget_set_hexpand(control_bar, FALSE);
     gtk_widget_set_vexpand(control_bar, FALSE);
 
@@ -428,6 +448,13 @@ GtkWidget* layout_create_main_container(LayoutConfig *config,
     gtk_widget_add_css_class(main_container, "main-container");
     gtk_widget_set_hexpand(main_container, FALSE);
     gtk_widget_set_vexpand(main_container, FALSE);
+    if (config->is_vertical) {
+        gtk_widget_set_halign(main_container, config->edge == EDGE_RIGHT ? GTK_ALIGN_END : GTK_ALIGN_START);
+        gtk_widget_set_valign(main_container, GTK_ALIGN_CENTER);
+    } else {
+        gtk_widget_set_halign(main_container, GTK_ALIGN_CENTER);
+        gtk_widget_set_valign(main_container, config->edge == EDGE_BOTTOM ? GTK_ALIGN_END : GTK_ALIGN_START);
+    }
 
     if (config->is_vertical) {
         // Vertical: control bar on edge, revealer slides outward

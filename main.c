@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 #include <gtk4-layer-shell.h>
 #include <gio/gio.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
@@ -69,6 +70,8 @@ typedef struct {
     guint morph_timer;
     gdouble button_fade_opacity;
     gint control_icon_size;
+    gulong input_region_update_id;
+    GdkFrameClock *input_region_clock;
 
     // Player monitoring
     guint dbus_watch_id;               // D-Bus name watcher
@@ -101,6 +104,111 @@ static void exit_vertical_idle_mode(AppState *state);
 static void find_active_player(AppState *state);
 
 static AppState *global_state = NULL;
+
+static void queue_input_region_update(AppState *state);
+
+static void clear_pending_input_region_update(AppState *state) {
+    if (!state || state->input_region_update_id == 0) return;
+
+    if (state->input_region_clock &&
+        g_signal_handler_is_connected(state->input_region_clock, state->input_region_update_id)) {
+        g_signal_handler_disconnect(state->input_region_clock, state->input_region_update_id);
+    }
+
+    state->input_region_update_id = 0;
+    g_clear_object(&state->input_region_clock);
+}
+
+static void add_widget_input_region(AppState *state, cairo_region_t *region, GtkWidget *widget) {
+    if (!state || !state->window || !region || !widget) return;
+    if (!gtk_widget_get_visible(widget) || !gtk_widget_get_mapped(widget)) return;
+
+    graphene_rect_t bounds;
+    if (!gtk_widget_compute_bounds(widget, state->window, &bounds)) return;
+
+    int x1 = (int)floorf(bounds.origin.x);
+    int y1 = (int)floorf(bounds.origin.y);
+    int x2 = (int)ceilf(bounds.origin.x + bounds.size.width);
+    int y2 = (int)ceilf(bounds.origin.y + bounds.size.height);
+
+    GtkNative *native = gtk_widget_get_native(state->window);
+    GdkSurface *surface = native ? gtk_native_get_surface(native) : NULL;
+    if (!surface) return;
+
+    int surface_width = gdk_surface_get_width(surface);
+    int surface_height = gdk_surface_get_height(surface);
+
+    x1 = CLAMP(x1, 0, surface_width);
+    y1 = CLAMP(y1, 0, surface_height);
+    x2 = CLAMP(x2, 0, surface_width);
+    y2 = CLAMP(y2, 0, surface_height);
+
+    if (x2 <= x1 || y2 <= y1) return;
+
+    cairo_rectangle_int_t rect = {
+        .x = x1,
+        .y = y1,
+        .width = x2 - x1,
+        .height = y2 - y1
+    };
+    cairo_region_union_rectangle(region, &rect);
+}
+
+static void update_input_region_now(AppState *state) {
+    if (!state || !state->window) return;
+
+    GtkNative *native = gtk_widget_get_native(state->window);
+    GdkSurface *surface = native ? gtk_native_get_surface(native) : NULL;
+    if (!surface) return;
+
+    cairo_region_t *region = cairo_region_create();
+
+    if (state->is_visible && gtk_widget_get_visible(state->window)) {
+        add_widget_input_region(state, region, state->control_bar_container);
+
+        gboolean expanded_visible = state->revealer &&
+            (gtk_revealer_get_reveal_child(GTK_REVEALER(state->revealer)) ||
+             gtk_revealer_get_child_revealed(GTK_REVEALER(state->revealer)));
+        if (expanded_visible) {
+            add_widget_input_region(state, region, state->expanded_with_volume);
+        }
+    }
+
+    gdk_surface_set_input_region(surface, region);
+    cairo_region_destroy(region);
+}
+
+static void on_input_region_after_paint(GdkFrameClock *clock, gpointer user_data) {
+    (void)clock;
+    AppState *state = (AppState *)user_data;
+    if (!state) return;
+
+    clear_pending_input_region_update(state);
+    update_input_region_now(state);
+}
+
+static void queue_input_region_update(AppState *state) {
+    if (!state || !state->window) return;
+
+    if (!gtk_widget_get_visible(state->window)) {
+        clear_pending_input_region_update(state);
+        update_input_region_now(state);
+        return;
+    }
+
+    if (state->input_region_update_id > 0) return;
+
+    GdkFrameClock *clock = gtk_widget_get_frame_clock(state->window);
+    if (!clock) {
+        update_input_region_now(state);
+        return;
+    }
+
+    state->input_region_clock = g_object_ref(clock);
+    state->input_region_update_id =
+        g_signal_connect(clock, "after-paint", G_CALLBACK(on_input_region_after_paint), state);
+    gdk_frame_clock_request_phase(clock, GDK_FRAME_CLOCK_PHASE_AFTER_PAINT);
+}
 
 static gboolean should_use_light_control_icons(AppState *state) {
     return state && state->layout && g_strcmp0(state->layout->theme, "dark") == 0;
@@ -490,15 +598,7 @@ static void on_player_clicked(GtkGestureClick *gesture, gint n_press, gdouble x,
 // FIXED: Smooth contract animation callback
 static void on_revealer_transition_done(GObject *revealer_obj, GParamSpec *pspec, gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    if (!gtk_revealer_get_child_revealed(GTK_REVEALER(revealer_obj))) {
-        // SMOOTH CONTRACT ANIMATION: Set proper control bar size after transition
-        if (state->layout->is_vertical) {
-            gtk_window_set_default_size(GTK_WINDOW(state->window), -1, 60);
-        } else {
-            gtk_window_set_default_size(GTK_WINDOW(state->window), 300, -1);
-        }
-        gtk_widget_queue_resize(state->window);
-    }
+    queue_input_region_update(state);
 }
 
 static gboolean delayed_visualizer_show(gpointer user_data) {
@@ -515,6 +615,7 @@ static void on_window_hide_complete(GObject *revealer, GParamSpec *pspec, gpoint
     if (!gtk_revealer_get_child_revealed(GTK_REVEALER(state->window_revealer))) {
         gtk_widget_set_visible(state->window, FALSE);
     }
+    queue_input_region_update(state);
 }
 
 static gboolean handle_sigusr1(gpointer user_data) {
@@ -541,10 +642,12 @@ static gboolean handle_sigusr1(gpointer user_data) {
             gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), FALSE);
         }
         gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), FALSE);
+        queue_input_region_update(global_state);
     } else {
         // SHOW
         gtk_widget_set_visible(global_state->window, TRUE);
         gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->window_revealer), TRUE);
+        queue_input_region_update(global_state);
 
         // Restore idle mode display if we were in it
         if (global_state->is_idle_mode) {
@@ -602,7 +705,11 @@ static gboolean handle_sigusr2(gpointer user_data) {
         // Update expand icon and revealer
         const gchar *icon_name = layout_get_expand_icon(global_state->layout, global_state->is_expanded);
         set_control_icon(global_state, global_state->expand_icon, icon_name);
+        if (global_state->is_expanded) {
+            gtk_widget_set_visible(global_state->expanded_with_volume, TRUE);
+        }
         gtk_revealer_set_reveal_child(GTK_REVEALER(global_state->revealer), global_state->is_expanded);
+        queue_input_region_update(global_state);
 
         return G_SOURCE_CONTINUE;
     }
@@ -653,7 +760,10 @@ static gboolean delayed_control_bar_resize(gpointer user_data) {
     int slim_w = layout_get_control_bar_length(state->layout);
     int slim_h = (int)(s * 0.46);  // 32/70 in original geometry
     gtk_widget_set_size_request(state->control_bar_container, slim_w, slim_h);
+    gtk_window_set_default_size(GTK_WINDOW(state->window), -1, slim_h);
     gtk_widget_queue_resize(state->control_bar_container);
+    gtk_widget_queue_resize(state->window);
+    queue_input_region_update(state);
     g_print("  Size request set to: %dx%d (slim, after button fade)\n", slim_w, slim_h);
     return G_SOURCE_REMOVE;
 }
@@ -753,8 +863,11 @@ static void exit_idle_mode(AppState *state) {
     int w = layout_get_control_bar_length(state->layout);
     int h = s;
     gtk_widget_set_size_request(state->control_bar_container, w, h);
+    gtk_window_set_default_size(GTK_WINDOW(state->window), -1, h);
     gtk_widget_queue_resize(state->control_bar_container);
+    gtk_widget_queue_resize(state->window);
     gtk_widget_queue_allocate(state->control_bar_container);
+    queue_input_region_update(state);
     g_print("  Size request set to: %dx%d\n", w, h);
 
     // Hide visualizer
@@ -781,7 +894,10 @@ static gboolean delayed_control_bar_resize_vertical(gpointer user_data) {
     int slim_w = (int)(s * 0.46);  // 32/70 in original geometry
     int slim_h = layout_get_control_bar_length(state->layout);
     gtk_widget_set_size_request(state->control_bar_container, slim_w, slim_h);
+    gtk_window_set_default_size(GTK_WINDOW(state->window), slim_w, -1);
     gtk_widget_queue_resize(state->control_bar_container);
+    gtk_widget_queue_resize(state->window);
+    queue_input_region_update(state);
     g_print("  Vertical bar resized to: %dx%d (slim mode)\n", slim_w, slim_h);
     return G_SOURCE_REMOVE;
 }
@@ -840,7 +956,10 @@ static void exit_vertical_idle_mode(AppState *state) {
     int w = s;
     int h = layout_get_control_bar_length(state->layout);
     gtk_widget_set_size_request(state->control_bar_container, w, h);
+    gtk_window_set_default_size(GTK_WINDOW(state->window), w, -1);
     gtk_widget_queue_resize(state->control_bar_container);
+    gtk_widget_queue_resize(state->window);
+    queue_input_region_update(state);
     
     // Start button fade-in animation
     if (state->morph_timer > 0) {
@@ -1426,7 +1545,11 @@ static void on_expand_clicked(GtkButton *button, gpointer user_data) {
 
     const gchar *icon_name = layout_get_expand_icon(state->layout, state->is_expanded);
     set_control_icon(state, state->expand_icon, icon_name);
+    if (state->is_expanded) {
+        gtk_widget_set_visible(state->expanded_with_volume, TRUE);
+    }
     gtk_revealer_set_reveal_child(GTK_REVEALER(state->revealer), state->is_expanded);
+    queue_input_region_update(state);
 
     // Start/stop visualizer based on expanded state
     if (state->is_expanded) {
@@ -1467,6 +1590,7 @@ static void on_volume_visibility_changed(GObject *revealer, GParamSpec *pspec, g
         gtk_widget_queue_resize(state->expanded_with_volume);
         gtk_widget_queue_allocate(state->expanded_with_volume);
     }
+    queue_input_region_update(state);
 }
 
 static void load_css() {
@@ -1572,6 +1696,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
     state->is_idle_mode = FALSE;
     state->idle_timer = 0;
     state->morph_timer = 0;
+    state->input_region_update_id = 0;
+    state->input_region_clock = NULL;
 
     // Create window FIRST
     GtkWidget *window = gtk_application_window_new(app);
@@ -1581,11 +1707,10 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // Set window size IMMEDIATELY to match control_bar
     if (state->layout->is_vertical) {
         gtk_window_set_default_size(GTK_WINDOW(window), 50, -1);
-        gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
     } else {
         gtk_window_set_default_size(GTK_WINDOW(window), -1, 60);
-        gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
     }
+    gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
     
     // LAYER SHELL SETUP
     gtk_layer_init_for_window(GTK_WINDOW(window));
@@ -1875,6 +2000,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     
     gtk_revealer_set_transition_duration(GTK_REVEALER(window_revealer), window_duration);
     gtk_revealer_set_transition_duration(GTK_REVEALER(revealer), internal_duration);
+    queue_input_region_update(state);
     
     // ========================================
     // MOUSE MOTION (for idle mode detection)
