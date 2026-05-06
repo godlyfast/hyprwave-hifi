@@ -252,6 +252,8 @@ idle_timeout = 5
 
 The vertical dot matrix track-change scroll is constrained to the slim control
 bar height so track and artist text stays inside the rounded idle display.
+When playback is paused, the vertical idle display shows the local system clock
+in 24-hour format.
 
 Player selection is not driven by `[MusicPlayer]` in this fork. The last chosen
 MPRIS player is saved to `~/.config/hyprwave/preferred_player`.

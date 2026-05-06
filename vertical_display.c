@@ -4,18 +4,9 @@
 
 #define SCROLL_INTERVAL_MS 200
 #define VISIBLE_LINES 6
-#define PAUSE_ANIMATION_FRAMES 4
 
 // Forward declarations
 static gboolean scroll_animation(gpointer user_data);
-
-// Paused animation frames - SHORTER (remove extra newlines)
-static const gchar* PAUSE_FRAMES[] = {
-    "P\nA\nU\nS\nE\nD\n⣿",   // Removed extra \n before braille
-    "P\nA\nU\nS\nE\nD\n⣷",
-    "P\nA\nU\nS\nE\nD\n⣧",
-    "P\nA\nU\nS\nE\nD\n⣏"
-};
 
 // Sanitize text
 static gchar* sanitize_text(const gchar *text) {
@@ -76,21 +67,21 @@ static gchar* format_vertical_time(gint64 position_us, gint64 length_us) {
                           seconds / 10, seconds % 10);
 }
 
-// Status animation (PAUSED loop)
-static gboolean animate_paused(gpointer user_data) {
-    VerticalDisplayState *state = (VerticalDisplayState *)user_data;
-    
-    // Only animate if still in PAUSED mode
-    if (state->current_mode != DISPLAY_MODE_STATUS_PAUSED) {
-        state->status_animation_timer = 0;
-        return G_SOURCE_REMOVE;
-    }
-    
-    const gchar *frame = PAUSE_FRAMES[state->animation_frame % PAUSE_ANIMATION_FRAMES];
-    gtk_label_set_text(GTK_LABEL(state->label), frame);
-    
-    state->animation_frame++;
-    return G_SOURCE_CONTINUE;
+static gchar* format_vertical_system_clock(void) {
+    GDateTime *now = g_date_time_new_now_local();
+    gint hours = g_date_time_get_hour(now);
+    gint minutes = g_date_time_get_minute(now);
+    gchar *clock_text = g_strdup_printf("%d\n%d\n:\n%d\n%d",
+                                        hours / 10, hours % 10,
+                                        minutes / 10, minutes % 10);
+    g_date_time_unref(now);
+    return clock_text;
+}
+
+static void update_system_clock_display(VerticalDisplayState *state) {
+    gchar *clock_text = format_vertical_system_clock();
+    gtk_label_set_text(GTK_LABEL(state->label), clock_text);
+    g_free(clock_text);
 }
 
 // Show PLAYING briefly then return to timer
@@ -228,6 +219,11 @@ static gboolean scroll_animation(gpointer user_data) {
 static gboolean update_timer_display(gpointer user_data) {
     VerticalDisplayState *state = (VerticalDisplayState *)user_data;
     
+    if (state->current_mode == DISPLAY_MODE_STATUS_PAUSED) {
+        update_system_clock_display(state);
+        return G_SOURCE_CONTINUE;
+    }
+
     // CRITICAL: Only update if in TIME mode
     if (state->current_mode != DISPLAY_MODE_TIME) {
         return G_SOURCE_CONTINUE;
@@ -324,6 +320,11 @@ void vertical_display_update_track(VerticalDisplayState *state,
         g_source_remove(state->status_animation_timer);
         state->status_animation_timer = 0;
     }
+    if (state->is_paused) {
+        state->current_mode = DISPLAY_MODE_STATUS_PAUSED;
+        update_system_clock_display(state);
+        return;
+    }
     
     // Start track scroll
     state->current_mode = DISPLAY_MODE_SCROLL_TRACK;
@@ -354,10 +355,10 @@ void vertical_display_set_paused(VerticalDisplayState *state, gboolean paused) {
     }
     
     if (paused) {
-        // Enter PAUSED mode - loops forever
+        // Enter PAUSED mode - show local 24-hour clock
         state->current_mode = DISPLAY_MODE_STATUS_PAUSED;
         state->animation_frame = 0;
-        state->status_animation_timer = g_timeout_add(500, animate_paused, state);
+        update_system_clock_display(state);
     } else {
         // Show PLAYING briefly, then return to timer
         state->current_mode = DISPLAY_MODE_STATUS_PLAYING;

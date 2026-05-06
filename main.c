@@ -1474,9 +1474,9 @@ static void update_playback_status(AppState *state) {
         
         // UPDATE VERTICAL DISPLAY
         if (state->vertical_display) {
-            // Only notify if status changed
-            if (was_playing != state->is_playing) {
-                vertical_display_set_paused(state->vertical_display, !state->is_playing);
+            gboolean is_paused = !state->is_playing;
+            if (was_playing != state->is_playing || state->vertical_display->is_paused != is_paused) {
+                vertical_display_set_paused(state->vertical_display, is_paused);
             }
         }
         
