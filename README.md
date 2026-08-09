@@ -304,6 +304,30 @@ layerrule = noblur, hyprwave-notification
 3. Play audio from the selected MPRIS player.
 4. If the player has no matching sink-input, the visualizer may stay hidden.
 
+### Overlay Never Appears and the Toggle Keybind Seems Dead
+
+Symptom: `hyprwave` is running, `hyprctl layers` lists the `hyprwave` namespace,
+but it is stuck at `a: 0` and the toggle keybind changes nothing.
+
+A layer surface reported at `a: 0` is unmapped — the client never attached a
+buffer, so there is nothing to reveal and the toggle has no visible effect in
+either state. Check whether the selected player is flooding D-Bus:
+
+```bash
+# Should be a handful of signals, not several per second
+timeout 10 dbus-monitor --session \
+  "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'" \
+  | grep -c PropertiesChanged
+```
+
+HyprWave only rebuilds on properties it actually draws (`Metadata`,
+`PlaybackStatus`, the `Can*` flags), so a chatty player should no longer be able
+to stall rendering. If you are running an older build and see this, either
+update or select a different player — a player that announces `Position` via
+`PropertiesChanged` (which MPRIS forbids) keeps the GLib main loop busy at
+`G_PRIORITY_DEFAULT` and starves GDK's redraw source at `GDK_PRIORITY_REDRAW`,
+so the window never paints its first frame.
+
 ### Volume Control Not Working
 
 Check `pactl` first:

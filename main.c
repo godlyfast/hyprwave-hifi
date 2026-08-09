@@ -1490,11 +1490,50 @@ static void update_playback_status(AppState *state) {
     }
 }
 
+// Players are free to emit PropertiesChanged as often as they like, and some
+// emit "Position" several times a second even though MPRIS says it must not be
+// announced that way. Rebuilding metadata and playback state on every signal
+// keeps the GLib main loop busy at G_PRIORITY_DEFAULT, which starves GDK's
+// redraw source (GDK_PRIORITY_REDRAW is an idle priority) and leaves the layer
+// surface without a single painted frame. Only react to what we actually draw;
+// position is already refreshed by update_position_tick() once a second.
 static void on_properties_changed(GDBusProxy *proxy, GVariant *changed_properties,
                                   GStrv invalidated_properties, gpointer user_data) {
     AppState *state = (AppState *)user_data;
-    update_metadata(state);
-    update_playback_status(state);
+
+    gboolean metadata_changed = FALSE;
+    gboolean status_changed = FALSE;
+
+    if (changed_properties) {
+        GVariantIter iter;
+        const gchar *key;
+        GVariant *val;
+
+        g_variant_iter_init(&iter, changed_properties);
+        while (g_variant_iter_loop(&iter, "{&sv}", &key, &val)) {
+            if (g_strcmp0(key, "Metadata") == 0) {
+                metadata_changed = TRUE;
+            } else if (g_strcmp0(key, "PlaybackStatus") == 0 ||
+                       g_strcmp0(key, "CanPlay") == 0 ||
+                       g_strcmp0(key, "CanPause") == 0 ||
+                       g_strcmp0(key, "CanGoNext") == 0 ||
+                       g_strcmp0(key, "CanGoPrevious") == 0 ||
+                       g_strcmp0(key, "CanSeek") == 0) {
+                status_changed = TRUE;
+            }
+        }
+    }
+
+    for (GStrv p = invalidated_properties; p && *p; p++) {
+        if (g_strcmp0(*p, "Metadata") == 0) {
+            metadata_changed = TRUE;
+        } else if (g_strcmp0(*p, "PlaybackStatus") == 0) {
+            status_changed = TRUE;
+        }
+    }
+
+    if (metadata_changed) update_metadata(state);
+    if (status_changed) update_playback_status(state);
 }
 
 // Callback when player name appears/disappears on D-Bus
