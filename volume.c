@@ -19,6 +19,23 @@
 // Forward declarations
 static void init_pipewire_state(VolumeState *state);
 
+/**
+ * Format a 0.0-1.0 volume as a percentage label.
+ *
+ * The slider steps in halves of a percent, so whole-number formatting would
+ * print the same text for two consecutive steps. Show a decimal only when the
+ * value actually lands between whole percents.
+ */
+static gchar* format_volume_percentage(gdouble volume) {
+    gdouble percentage = volume * 100.0;
+    gdouble whole = round(percentage);
+
+    if (fabs(percentage - whole) < 0.05) {
+        return g_strdup_printf("%d%%", (gint)whole);
+    }
+    return g_strdup_printf("%.1f%%", percentage);
+}
+
 static gboolean auto_hide_volume(gpointer user_data) {
     VolumeState *state = (VolumeState *)user_data;
     volume_hide(state);
@@ -114,10 +131,9 @@ static void on_volume_changed(GtkRange *range, gpointer user_data) {
     state->pending_set_timer = g_timeout_add(100, delayed_volume_set, state);
 
     // Update UI immediately for responsive feel
-    gint percentage = (gint)round(value * 100);
-    volume_update_icon(state, percentage);
+    volume_update_icon(state, (gint)round(value * 100));
 
-    gchar *text = g_strdup_printf("%d%%", percentage);
+    gchar *text = format_volume_percentage(value);
     gtk_label_set_text(GTK_LABEL(state->percentage), text);
     g_free(text);
 
@@ -208,9 +224,12 @@ VolumeState* volume_init(GDBusProxy *mpris_proxy, const gchar *mpris_bus_name, g
     // Volume slider
     GtkWidget *slider = gtk_scale_new_with_range(
         is_vertical ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL,
-        0.0, 1.0, 0.01  // 1% increments for smoother control
+        0.0, 1.0, VOLUME_STEP  // 0.5% increments (arrow keys and scroll wheel)
     );
     state->slider = slider;
+    // gtk_scale_new_with_range derives the page increment from the step, which
+    // would shrink Page Up/Down to 5%. Keep the coarse jump at 10%.
+    gtk_adjustment_set_page_increment(gtk_range_get_adjustment(GTK_RANGE(slider)), 0.1);
     gtk_widget_add_css_class(slider, "volume-slider");
     gtk_scale_set_draw_value(GTK_SCALE(slider), FALSE);
     gtk_range_set_value(GTK_RANGE(slider), state->current_volume);
@@ -225,7 +244,7 @@ VolumeState* volume_init(GDBusProxy *mpris_proxy, const gchar *mpris_bus_name, g
     g_signal_connect(slider, "value-changed", G_CALLBACK(on_volume_changed), state);
 
     // Percentage label
-    gchar *percentage_text = g_strdup_printf("%d%%", initial_percentage);
+    gchar *percentage_text = format_volume_percentage(state->current_volume);
     GtkWidget *percentage = gtk_label_new(percentage_text);
     g_free(percentage_text);
     state->percentage = percentage;
@@ -279,10 +298,9 @@ void volume_show(VolumeState *state) {
     gtk_range_set_value(GTK_RANGE(state->slider), state->current_volume);
     g_signal_handlers_unblock_by_func(state->slider, on_volume_changed, state);
 
-    gint percentage = (gint)round(state->current_volume * 100);
-    volume_update_icon(state, percentage);
+    volume_update_icon(state, (gint)round(state->current_volume * 100));
 
-    gchar *text = g_strdup_printf("%d%%", percentage);
+    gchar *text = format_volume_percentage(state->current_volume);
     gtk_label_set_text(GTK_LABEL(state->percentage), text);
     g_free(text);
 

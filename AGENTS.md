@@ -34,7 +34,8 @@ hyprwave/
 |------|----------|-------|
 | Core app logic | `main.c` | MPRIS proxy, UI state, timers |
 | Visualizer | `visualizer.c` | PipeWire stream capture, FFT, AGC |
-| Per-app volume | `pipewire_volume.c` | Targets specific player, not system-wide |
+| Per-app volume | `pipewire_volume.c` | Targets specific player, not system-wide; reads/writes fractional percentages so `VOLUME_STEP` stays intact |
+| Volume slider / label | `volume.c`, `volume.h` | `VOLUME_STEP` (0.5%) drives arrow keys and scroll wheel |
 | Layout / theming | `layout.c`, `style.css` | Position, expand, vertical mode |
 | Build | `Makefile` | `make` → `./hyprwave` |
 
@@ -63,6 +64,6 @@ sudo pacman -S gtk4 gtk4-layer-shell pipewire
 
 ## NOTES
 
-- Compiled binary `hyprwave` checked in at repo root (rebuild with `make`)
+- Compiled binary `hyprwave` is gitignored; build it at the repo root with `make`
 - Nix flake available for NixOS users
 - Requires active MPRIS player (Spotify, Roon, VLC, etc.)

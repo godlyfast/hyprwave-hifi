@@ -15,6 +15,9 @@
  * 4. Simpler than async libpipewire event loop
  */
 
+// Raw value pactl reports for 100% (PA_VOLUME_NORM)
+#define PACTL_VOLUME_NORM 65536.0
+
 gboolean pw_is_pactl_available(void) {
     gchar *stdout_str = NULL;
     gchar *stderr_str = NULL;
@@ -344,21 +347,22 @@ gdouble pw_get_volume(gint sink_input_index) {
             in_target_sink = (current_index == sink_input_index);
         }
 
-        // Parse volume line for target sink
-        if (in_target_sink && g_strstr_len(*line, -1, "Volume:")) {
-            // Look for percentage like "100%" or "75%"
-            const gchar *percent = g_strstr_len(*line, -1, "%");
-            if (percent) {
-                // Walk backwards to find the start of the number
-                const gchar *num_start = percent - 1;
-                while (num_start > *line && g_ascii_isdigit(*(num_start - 1))) {
-                    num_start--;
+        // Parse volume line for target sink. Read the raw value rather than
+        // the percentage: pactl prints the percentage rounded to a whole
+        // number, which would quantize away the half-percent steps the slider
+        // can set, snapping the value every time the control is reopened.
+        const gchar *volume_field = in_target_sink ? g_strstr_len(*line, -1, "Volume:") : NULL;
+        if (volume_field) {
+            const gchar *raw_start = strchr(volume_field + strlen("Volume:"), ':');
+            if (raw_start) {
+                gchar *raw_end = NULL;
+                gint64 raw = g_ascii_strtoll(raw_start + 1, &raw_end, 10);
+                if (raw_end != raw_start + 1 && raw >= 0) {
+                    volume = (gdouble)raw / PACTL_VOLUME_NORM;
+                    g_print("PipeWire: Sink-input #%d volume is %.1f%% (%.4f)\n",
+                            sink_input_index, volume * 100.0, volume);
+                    break;
                 }
-                gint percent_val = (gint)g_ascii_strtoll(num_start, NULL, 10);
-                volume = percent_val / 100.0;
-                g_print("PipeWire: Sink-input #%d volume is %d%% (%.2f)\n",
-                        sink_input_index, percent_val, volume);
-                break;
             }
         }
     }
@@ -374,15 +378,20 @@ gboolean pw_set_volume(gint sink_input_index, gdouble volume) {
     if (volume < 0.0) volume = 0.0;
     if (volume > 1.5) volume = 1.5;
 
-    // Convert to percentage for pactl
-    gint percent = (gint)(volume * 100.0 + 0.5);
+    // Convert to percentage for pactl. One decimal place, because the slider
+    // steps in halves of a percent and pactl would otherwise round it away.
+    // The locale-independent formatter matters: pactl only parses '.' as the
+    // decimal separator, so g_strdup_printf("%.1f") would break under a
+    // comma-decimal locale.
+    gchar percent_str[G_ASCII_DTOSTR_BUF_SIZE];
+    g_ascii_formatd(percent_str, sizeof(percent_str), "%.1f", volume * 100.0);
 
     gchar *command = g_strdup_printf(
-        "pactl set-sink-input-volume %d %d%%",
-        sink_input_index, percent);
+        "pactl set-sink-input-volume %d %s%%",
+        sink_input_index, percent_str);
 
-    g_print("PipeWire: Setting sink-input #%d volume to %d%%\n",
-            sink_input_index, percent);
+    g_print("PipeWire: Setting sink-input #%d volume to %s%%\n",
+            sink_input_index, percent_str);
 
     gchar *stdout_str = NULL;
     gchar *stderr_str = NULL;

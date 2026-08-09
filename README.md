@@ -28,6 +28,7 @@ project unless explicitly stated otherwise. Use this repository URL or the
 ## Features
 
 - Per-application volume using PipeWire/Pulse sink-inputs via `pactl`, with MPRIS fallback.
+- Half-percent volume steps, with fractional levels preserved end to end.
 - PipeWire-native visualizer with automatic gain control.
 - MPRIS playback controls for Spotify, Roon, VLC, browsers, and other compatible players.
 - Click/drag progress seeking when the active player supports seeking.
@@ -275,6 +276,15 @@ layouts when the active player's audio stream can be matched.
 | `auto` | Try PipeWire/Pulse sink-input control first, then fall back to MPRIS volume |
 | `pipewire` | Require a matching sink-input; useful for Chromium/Electron players |
 | `mpris` | Use only the player's MPRIS `Volume` property |
+
+### Volume Granularity
+
+The slider moves in 0.5% steps for arrow keys and the scroll wheel, and 10%
+steps for Page Up/Down. Half-percent levels survive the whole chain: `pactl`
+is given a fractional percentage when setting, and the raw volume value is
+read back rather than the whole-number percentage `pactl` prints, so reopening
+the control does not snap the level. The label shows a decimal only when the
+level falls between whole percents, for example `50.5%`.
 
 ## Themes
 

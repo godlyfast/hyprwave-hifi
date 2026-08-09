@@ -4,6 +4,9 @@
 #include <gtk/gtk.h>
 #include <gio/gio.h>
 
+// Slider granularity as a fraction of full scale (0.005 = 0.5%)
+#define VOLUME_STEP 0.005
+
 typedef struct {
     GDBusProxy *mpris_proxy;
     GtkWidget *revealer;
