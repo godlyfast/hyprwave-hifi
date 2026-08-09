@@ -49,6 +49,7 @@ typedef struct {
     gchar *last_title;                 // Hi-Fi: Fallback for track change detection
     gchar *current_track_id;           // Hi-Fi: For seek operations
     gint64 current_length;             // Hi-Fi: Track length in microseconds
+    guint length_retries;              // Bounded re-reads when a player omits mpris:length
     guint notification_timer;
     gchar *pending_title;
     gchar *pending_artist;
@@ -492,6 +493,11 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
         g_object_unref(state->mpris_proxy);
         state->mpris_proxy = NULL;
     }
+
+    // The outgoing player's track no longer describes what the seek bar shows.
+    state->current_length = 0;
+    state->length_retries = 0;
+    g_clear_pointer(&state->current_track_id, g_free);
 
     g_free(state->current_player);
     state->current_player = g_strdup(bus_name);
@@ -1134,6 +1140,82 @@ static gint64 get_variant_as_int64(GVariant *value) {
     return 0;
 }
 
+// Pull a single value out of an MPRIS Metadata dict. Both return 0/NULL when the
+// key is absent, which players do more often than the spec suggests.
+static gint64 metadata_get_length(GVariant *metadata) {
+    if (!metadata) return 0;
+    GVariant *value = g_variant_lookup_value(metadata, "mpris:length", NULL);
+    if (!value) return 0;
+    gint64 length = get_variant_as_int64(value);
+    g_variant_unref(value);
+    return length;
+}
+
+static gchar* metadata_get_track_id(GVariant *metadata) {
+    if (!metadata) return NULL;
+    GVariant *value = g_variant_lookup_value(metadata, "mpris:trackid", NULL);
+    if (!value) return NULL;
+    gchar *track_id = NULL;
+    if (g_variant_is_of_type(value, G_VARIANT_TYPE_OBJECT_PATH) ||
+        g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
+        track_id = g_strdup(g_variant_get_string(value, NULL));
+    }
+    g_variant_unref(value);
+    return track_id;
+}
+
+// Some players (hiresTI among them) leave mpris:length out of the Metadata dict
+// they publish in PropertiesChanged when a track starts. GDBusProxy replaces its
+// whole cached value from that signal, so the length disappears until the player
+// happens to send a complete dict again - and without a length the seek bar has
+// no scale to draw against and seeking is refused. Asking the player directly
+// does return the length, so re-read it and repair the cache.
+static void on_metadata_refetched(GObject *source_object, GAsyncResult *res, gpointer user_data) {
+    AppState *state = (AppState *)user_data;
+
+    GVariant *reply = g_dbus_proxy_call_finish(G_DBUS_PROXY(source_object), res, NULL);
+    if (!reply) return;
+
+    GVariant *metadata = NULL;
+    g_variant_get(reply, "(v)", &metadata);
+    g_variant_unref(reply);
+    if (!metadata) return;
+
+    gchar *track_id = metadata_get_track_id(metadata);
+    gint64 length = metadata_get_length(metadata);
+
+    // Drop a reply that raced past a track change or a player switch.
+    gboolean same_player = (G_DBUS_PROXY(source_object) == state->mpris_proxy);
+    gboolean same_track = (track_id == NULL ||
+                           state->current_track_id == NULL ||
+                           g_strcmp0(track_id, state->current_track_id) == 0);
+
+    if (length > 0 && same_player && same_track) {
+        state->current_length = length;
+        if (track_id && !state->current_track_id) {
+            state->current_track_id = g_strdup(track_id);
+        }
+        g_dbus_proxy_set_cached_property(state->mpris_proxy, "Metadata", metadata);
+        update_position(state);
+        g_print("Recovered track length from player: %ld µs\n", (long)length);
+    } else {
+        g_print("Track length unavailable (len=%ld same_player=%d same_track=%d)\n",
+                (long)length, same_player, same_track);
+    }
+
+    g_free(track_id);
+    g_variant_unref(metadata);
+}
+
+static void refresh_track_length(AppState *state) {
+    if (!state->mpris_proxy) return;
+
+    g_dbus_proxy_call(state->mpris_proxy,
+        "org.freedesktop.DBus.Properties.Get",
+        g_variant_new("(ss)", "org.mpris.MediaPlayer2.Player", "Metadata"),
+        G_DBUS_CALL_FLAGS_NONE, -1, NULL, on_metadata_refetched, state);
+}
+
 static gboolean update_position_tick(gpointer user_data) {
     AppState *state = (AppState *)user_data;
     update_position(state);
@@ -1148,74 +1230,58 @@ static gboolean clear_seeking_flag(gpointer user_data) {
 
 static void perform_seek(AppState *state, gdouble fraction) {
     if (!state->mpris_proxy) return;
-    
-    GVariant *metadata = g_dbus_proxy_get_cached_property(state->mpris_proxy, "Metadata");
-    if (!metadata) return;
-    
-    gint64 length = 0;
-    const gchar *track_id = NULL;
-    GVariantIter iter;
-    gchar *key;
-    GVariant *val;
 
-    g_variant_iter_init(&iter, metadata);
-    while (g_variant_iter_loop(&iter, "{sv}", &key, &val)) {
-        if (g_strcmp0(key, "mpris:length") == 0) {
-            length = get_variant_as_int64(val);
-        } else if (g_strcmp0(key, "mpris:trackid") == 0) {
-            track_id = g_variant_get_string(val, NULL);
-        }
+    gint64 length = state->current_length;
+    const gchar *track_id = state->current_track_id;
+
+    if (length <= 0 || !track_id) {
+        // Nothing to seek against - ask the player for a length so the next
+        // attempt works, rather than failing silently again.
+        refresh_track_length(state);
+        g_print("Seek ignored - no track length yet\n");
+        return;
     }
 
-    if (length > 0 && track_id) {
-        gint64 target_position = (gint64)(fraction * length);
-        g_dbus_proxy_call(state->mpris_proxy, "SetPosition",
-            g_variant_new("(ox)", track_id, target_position),
-            G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
-        g_print("Seeking to %.1f%% (position: %ld µs)\n", fraction * 100, target_position);
+    if (!g_variant_is_object_path(track_id)) {
+        g_print("Seek ignored - invalid track id '%s'\n", track_id);
+        return;
     }
-    g_variant_unref(metadata);
+
+    gint64 target_position = (gint64)(fraction * length);
+    g_dbus_proxy_call(state->mpris_proxy, "SetPosition",
+        g_variant_new("(ox)", track_id, target_position),
+        G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
+    g_print("Seeking to %.1f%% (position: %ld µs)\n", fraction * 100, target_position);
 }
 
-static void on_change_value(GtkRange *range, GtkScrollType scroll, gdouble value, gpointer user_data) {
+// GtkRange::change-value is a BOOLEAN__ENUM_DOUBLE signal - returning FALSE lets
+// GTK apply the new value. A void handler here would hand the marshaller whatever
+// happened to be in the return register and could silently swallow the drag.
+static gboolean on_change_value(GtkRange *range, GtkScrollType scroll, gdouble value, gpointer user_data) {
     AppState *state = (AppState *)user_data;
+    (void)range;
+    (void)scroll;
     state->is_seeking = TRUE;
-    
-    if (state->mpris_proxy) {
-        GVariant *metadata = g_dbus_proxy_get_cached_property(state->mpris_proxy, "Metadata");
-        if (metadata) {
-            gint64 length = 0;
-            GVariantIter iter;
-            gchar *key;
-            GVariant *val;
-            
-            g_variant_iter_init(&iter, metadata);
-            while (g_variant_iter_loop(&iter, "{sv}", &key, &val)) {
-                if (g_strcmp0(key, "mpris:length") == 0) {
-                    length = get_variant_as_int64(val);
-                    break;
-                }
-            }
-            g_variant_unref(metadata);
 
-            if (length > 0) {
-                gint64 target_pos = (gint64)(value * length);
-                gint64 pos_seconds = target_pos / 1000000;
-                gint64 len_seconds = length / 1000000;
-                gint64 rem_seconds = len_seconds - pos_seconds;
-                
-                char time_str[32];
-                if (rem_seconds >= 0) {
-                    snprintf(time_str, sizeof(time_str), "-%ld:%02ld", 
-                            rem_seconds / 60, rem_seconds % 60);
-                } else {
-                    snprintf(time_str, sizeof(time_str), "%ld:%02ld", 
-                            pos_seconds / 60, pos_seconds % 60);
-                }
-                gtk_label_set_text(GTK_LABEL(state->time_remaining), time_str);
-            }
+    gint64 length = state->current_length;
+    if (length > 0) {
+        gint64 target_pos = (gint64)(value * length);
+        gint64 pos_seconds = target_pos / 1000000;
+        gint64 len_seconds = length / 1000000;
+        gint64 rem_seconds = len_seconds - pos_seconds;
+
+        char time_str[32];
+        if (rem_seconds >= 0) {
+            snprintf(time_str, sizeof(time_str), "-%ld:%02ld",
+                    rem_seconds / 60, rem_seconds % 60);
+        } else {
+            snprintf(time_str, sizeof(time_str), "%ld:%02ld",
+                    pos_seconds / 60, pos_seconds % 60);
         }
+        gtk_label_set_text(GTK_LABEL(state->time_remaining), time_str);
     }
+
+    return FALSE;
 }
 
 static gboolean on_button_release_event(GtkWidget *widget, GdkEvent *event, gpointer user_data) {
@@ -1249,22 +1315,7 @@ static void on_position_received(GObject *source_object, GAsyncResult *res, gpoi
     g_variant_unref(position_val_wrapped);
     g_variant_unref(position_container);
     
-    gint64 length = 0;
-    GVariant *metadata_var = g_dbus_proxy_get_cached_property(state->mpris_proxy, "Metadata");
-    
-    if (metadata_var) {
-        GVariantIter iter;
-        gchar *key;
-        GVariant *val;
-        g_variant_iter_init(&iter, metadata_var);
-        while (g_variant_iter_loop(&iter, "{sv}", &key, &val)) {
-            if (g_strcmp0(key, "mpris:length") == 0) {
-                length = get_variant_as_int64(val);
-                break;
-            }
-        }
-        g_variant_unref(metadata_var);
-    }
+    gint64 length = state->current_length;
 
     char time_str[32];
     double fraction = 0.0;
@@ -1298,10 +1349,19 @@ static void on_position_received(GObject *source_object, GAsyncResult *res, gpoi
     }
 }
 
+// Retries allowed per track when the length has to be fetched separately. Bounded
+// so a genuinely length-less source (a live stream) does not poll the player.
+#define MAX_LENGTH_RETRIES 5
+
 static void update_position(AppState *state) {
     if (state->is_seeking) return;
     if (!state->mpris_proxy) return;
-    
+
+    if (state->current_length <= 0 && state->length_retries < MAX_LENGTH_RETRIES) {
+        state->length_retries++;
+        refresh_track_length(state);
+    }
+
     g_dbus_proxy_call(state->mpris_proxy,
         "org.freedesktop.DBus.Properties.Get",
         g_variant_new("(ss)", "org.mpris.MediaPlayer2.Player", "Position"),
@@ -1345,7 +1405,14 @@ static gboolean show_pending_notification(gpointer user_data) {
 static void update_metadata(AppState *state) {
     if (!state->mpris_proxy) return;
     GVariant *metadata = g_dbus_proxy_get_cached_property(state->mpris_proxy, "Metadata");
-    if (!metadata) return;
+    if (!metadata) {
+        // The proxy has never seen a Metadata value for this player; go get one.
+        state->current_length = 0;
+        state->length_retries = 0;
+        g_clear_pointer(&state->current_track_id, g_free);
+        refresh_track_length(state);
+        return;
+    }
 
     GVariantIter iter;
     GVariant *value;
@@ -1393,7 +1460,19 @@ static void update_metadata(AppState *state) {
         g_free(state->last_track_id);
         state->last_track_id = g_strdup(track_id);
     }
-    
+
+    // Keep the seek bar's scale in one place. A track change that arrives without
+    // mpris:length would otherwise leave the bar pinned at 0 for the whole track,
+    // so ask the player for the real value.
+    g_free(state->current_track_id);
+    state->current_track_id = g_strdup(track_id);
+    state->current_length = metadata_get_length(metadata);
+    state->length_retries = 0;
+    if (state->current_length <= 0) {
+        state->length_retries++;
+        refresh_track_length(state);
+    }
+
     if (state->layout->notifications_enabled && state->layout->now_playing_enabled && 
         state->notification && track_changed) {
         if (state->notification_timer > 0) {
@@ -1589,6 +1668,10 @@ static void connect_to_player(AppState *state, const gchar *bus_name) {
     if (state->mpris_proxy) g_object_unref(state->mpris_proxy);
     g_free(state->current_player);
     state->current_player = g_strdup(bus_name);
+
+    state->current_length = 0;
+    state->length_retries = 0;
+    g_clear_pointer(&state->current_track_id, g_free);
 
     GError *error = NULL;
     state->mpris_proxy = g_dbus_proxy_new_for_bus_sync(

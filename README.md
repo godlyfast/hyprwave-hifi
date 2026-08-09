@@ -356,6 +356,45 @@ update or select a different player — a player that announces `Position` via
 `G_PRIORITY_DEFAULT` and starves GDK's redraw source at `GDK_PRIORITY_REDRAW`,
 so the window never paints its first frame.
 
+### Seek Bar Stuck at the Start of Every Track
+
+Symptom: the elapsed time under the seek bar counts up normally, but the handle
+stays pinned at the left edge, the time reads `1:37` instead of `-1:37`, and
+dragging the bar does nothing.
+
+All three come from a missing track length. MPRIS players publish it as
+`mpris:length` inside `Metadata`, and some players — hiresTI among them — leave
+that key out of the `PropertiesChanged` signal they emit when a track starts.
+GDBus replaces its whole cached `Metadata` value from that signal, so the length
+disappears for the rest of the track, and without it there is no scale to draw
+the handle against or to turn a drag into a position.
+
+Check what your player actually announces:
+
+```bash
+# The signal emitted on a track change - look for mpris:length
+gdbus monitor --session --dest org.mpris.MediaPlayer2.YOURPLAYER
+
+# What the player returns when asked directly
+gdbus call --session --dest org.mpris.MediaPlayer2.YOURPLAYER \
+  --object-path /org/mpris/MediaPlayer2 \
+  --method org.freedesktop.DBus.Properties.Get \
+  org.mpris.MediaPlayer2.Player Metadata
+```
+
+If the direct read has `mpris:length` but the signal does not, HyprWave recovers
+on its own: it re-reads `Metadata` from the player, retrying up to five times at
+one-second intervals, because some players have not computed the length yet at
+the instant they announce the track. The recovery is logged:
+
+```
+Track length unavailable (len=0 same_player=1 same_track=1)
+Recovered track length from player: 221340000 µs
+```
+
+If the direct read has no length either, the source genuinely has no duration —
+a live stream, for example — and the bar stays at zero by design.
+
 ### Volume Control Not Working
 
 Check `pactl` first:

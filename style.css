@@ -261,11 +261,34 @@ window > * {
     min-height: 4px;
 }
 
-/* The filled progress portion - GTK4 specific */
-.track-progress progress {
+/* The elapsed portion. A GtkScale draws this as trough > highlight; `progress`
+   is GtkProgressBar's node and never matches here, which left the fill painted
+   in the system accent colour. */
+.track-progress highlight {
     background: linear-gradient(90deg, var(--progress-fill-start), var(--progress-fill-end));
     border-radius: var(--border-radius-progress);
     min-height: 4px;
+}
+
+/* The drag handle. Without this the stock theme's large white knob is used. */
+.track-progress slider {
+    min-height: 10px;
+    min-width: 10px;
+    background: linear-gradient(135deg, var(--progress-fill-end), var(--progress-fill-start));
+    border: none;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px var(--shadow-button);
+}
+
+.track-progress:hover slider,
+.track-progress slider:hover {
+    min-height: 12px;
+    min-width: 12px;
+    background: var(--progress-fill-end);
+}
+
+.track-progress slider:active {
+    background: var(--progress-fill-end);
 }
 
 /* GTK4 also needs this for the fill bar to show */
@@ -522,8 +545,8 @@ button:focus {
     min-width: 6px;
 }
 
-/* The filled portion */
-.volume-slider progress {
+/* The filled portion - same trough > highlight node as the seek bar */
+.volume-slider highlight {
     background: linear-gradient(90deg, var(--btn-default), var(--btn-default-secondary));
     border-radius: var(--border-radius-progress);
     min-height: 6px;
@@ -556,7 +579,7 @@ button:focus {
     min-width: 6px;
 }
 
-.volume-slider.vertical progress {
+.volume-slider.vertical highlight {
     min-width: 6px;
 }
 
