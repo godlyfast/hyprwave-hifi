@@ -35,7 +35,8 @@ hyprwave/
 | Core app logic | `main.c` | MPRIS proxy, UI state, timers |
 | Visualizer | `visualizer.c` | PipeWire stream capture, FFT, AGC |
 | Per-app volume | `pipewire_volume.c` | Targets specific player, not system-wide; reads/writes fractional percentages so `VOLUME_STEP` stays intact |
-| Volume slider / label | `volume.c`, `volume.h` | `VOLUME_STEP` (0.5%) drives arrow keys and scroll wheel; `-`/`+` buttons use `VOLUME_STEP_DB` (constant ratio, capped at `VOLUME_STEP`) |
+| Volume slider / label | `volume.c`, `volume.h` | `VOLUME_STEP` (0.5%) drives arrow keys and scroll wheel; `-`/`+` buttons use `VOLUME_STEP_DB` (constant ratio, capped at `VOLUME_STEP`) with accelerating press-and-hold repeat |
+| Volume apply rate | `volume.c` | Leading-edge throttle on `VOLUME_APPLY_INTERVAL_US`; `pw_set_volume` spawns `pactl` synchronously on the UI thread |
 | Layout / theming | `layout.c`, `style.css` | Position, expand, vertical mode |
 | Build | `Makefile` | `make` → `./hyprwave` |
 

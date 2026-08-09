@@ -62,31 +62,127 @@ static gdouble volume_fine_step(gdouble volume, gboolean up) {
     return up ? delta : -delta;
 }
 
-static void volume_step(VolumeState *state, gboolean up) {
+/**
+ * Move one step. Returns FALSE when the level is already at the end of the
+ * range, which is what stops a held button from repeating into the stop.
+ */
+static gboolean volume_step(VolumeState *state, gboolean up) {
     gdouble value = gtk_range_get_value(GTK_RANGE(state->slider));
     gdouble stepped = CLAMP(value + volume_fine_step(value, up), 0.0, 1.0);
+
+    if (stepped == value) return FALSE;
 
     // Setting the range drives on_volume_changed, which applies the level,
     // relabels, and restarts the auto-hide timer.
     gtk_range_set_value(GTK_RANGE(state->slider), stepped);
+    return TRUE;
 }
 
-static void on_step_up_clicked(GtkButton *button, gpointer user_data) {
-    volume_step((VolumeState *)user_data, TRUE);
+/**
+ * Press-and-hold state for one step button.
+ *
+ * A held button starts slow and accelerates, so a tap is one step and a hold
+ * crosses the range without a separate coarse control. The throttle in
+ * on_volume_changed coalesces the fast end of that into one backend call per
+ * VOLUME_APPLY_INTERVAL_US, so the repeat rate is not limited by how long
+ * pactl takes.
+ */
+typedef struct {
+    VolumeState *state;
+    gboolean up;
+    guint timer;        // Delay before repeating, then the repeat itself
+    guint interval_ms;  // Shrinks while held
+} StepRepeat;
+
+static void step_repeat_stop(StepRepeat *repeat) {
+    if (repeat->timer > 0) {
+        g_source_remove(repeat->timer);
+        repeat->timer = 0;
+    }
 }
 
-static void on_step_down_clicked(GtkButton *button, gpointer user_data) {
-    volume_step((VolumeState *)user_data, FALSE);
+static gboolean step_repeat_tick(gpointer user_data) {
+    StepRepeat *repeat = (StepRepeat *)user_data;
+
+    if (!volume_step(repeat->state, repeat->up)) {
+        repeat->timer = 0;  // Hit the end of the range
+        return G_SOURCE_REMOVE;
+    }
+
+    guint next_ms = MAX(repeat->interval_ms * VOLUME_REPEAT_DECAY_NUM / VOLUME_REPEAT_DECAY_DEN,
+                        VOLUME_REPEAT_MIN_MS);
+    if (next_ms == repeat->interval_ms) {
+        return G_SOURCE_CONTINUE;  // Fully accelerated, keep this source
+    }
+
+    // Timeout intervals are fixed at creation, so speeding up means a new one
+    repeat->interval_ms = next_ms;
+    repeat->timer = g_timeout_add(next_ms, step_repeat_tick, repeat);
+    return G_SOURCE_REMOVE;
 }
 
-static GtkWidget* create_step_button(const gchar *label, GCallback callback, VolumeState *state) {
+static gboolean step_repeat_begin(gpointer user_data) {
+    StepRepeat *repeat = (StepRepeat *)user_data;
+
+    repeat->interval_ms = VOLUME_REPEAT_START_MS;
+    repeat->timer = g_timeout_add(repeat->interval_ms, step_repeat_tick, repeat);
+    return G_SOURCE_REMOVE;
+}
+
+static void step_repeat_press(StepRepeat *repeat) {
+    step_repeat_stop(repeat);
+    volume_step(repeat->state, repeat->up);
+    repeat->timer = g_timeout_add(VOLUME_REPEAT_DELAY_MS, step_repeat_begin, repeat);
+}
+
+static void on_step_pressed(GtkGestureClick *gesture, gint n_press,
+                            gdouble x, gdouble y, gpointer user_data) {
+    StepRepeat *repeat = (StepRepeat *)user_data;
+
+    step_repeat_press(repeat);
+    gtk_widget_add_css_class(gtk_event_controller_get_widget(
+        GTK_EVENT_CONTROLLER(gesture)), "held");
+
+    // Claiming the sequence keeps GtkButton's own click gesture from also
+    // firing on release, which would step twice per press.
+    gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+}
+
+static void on_step_release(GtkGesture *gesture, GdkEventSequence *sequence, gpointer user_data) {
+    step_repeat_stop((StepRepeat *)user_data);
+    gtk_widget_remove_css_class(gtk_event_controller_get_widget(
+        GTK_EVENT_CONTROLLER(gesture)), "held");
+}
+
+static void step_repeat_free(gpointer data) {
+    StepRepeat *repeat = (StepRepeat *)data;
+
+    step_repeat_stop(repeat);
+    g_free(repeat);
+}
+
+static GtkWidget* create_step_button(const gchar *label, gboolean up, VolumeState *state) {
     GtkWidget *button = gtk_button_new_with_label(label);
 
     gtk_widget_add_css_class(button, "volume-step");
     gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
     gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
     gtk_widget_set_focus_on_click(button, FALSE);
-    g_signal_connect(button, "clicked", callback, state);
+
+    StepRepeat *repeat = g_new0(StepRepeat, 1);
+    repeat->state = state;
+    repeat->up = up;
+    g_object_set_data_full(G_OBJECT(button), "step-repeat", repeat, step_repeat_free);
+
+    // Capture phase, so the press is seen before GtkButton's own gesture and
+    // can claim the sequence. The "held" class stands in for :active, which
+    // that claim suppresses.
+    GtkGesture *gesture = gtk_gesture_click_new();
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(gesture), GTK_PHASE_CAPTURE);
+    g_signal_connect(gesture, "pressed", G_CALLBACK(on_step_pressed), repeat);
+    g_signal_connect(gesture, "end", G_CALLBACK(on_step_release), repeat);
+    g_signal_connect(gesture, "cancel", G_CALLBACK(on_step_release), repeat);
+    gtk_widget_add_controller(button, GTK_EVENT_CONTROLLER(gesture));
 
     return button;
 }
@@ -123,16 +219,19 @@ void volume_update_icon(VolumeState *state, gint percentage) {
     free_path(icon_path);
 }
 
-// Throttled volume setter to prevent lag
-static gboolean delayed_volume_set(gpointer user_data) {
-    VolumeState *state = (VolumeState *)user_data;
+/**
+ * Push the pending level to whichever backend this player uses.
+ *
+ * pw_set_volume spawns pactl synchronously on the main thread, so callers go
+ * through the throttle in on_volume_changed rather than calling this directly.
+ */
+static void apply_pending_volume(VolumeState *state) {
+    state->last_apply_us = g_get_monotonic_time();
 
     // Try PipeWire first if available
     if (state->use_pipewire_volume && state->pw_sink_input_index >= 0) {
-        gboolean success = pw_set_volume(state->pw_sink_input_index, state->pending_volume);
-        if (success) {
-            state->pending_set_timer = 0;
-            return G_SOURCE_REMOVE;
+        if (pw_set_volume(state->pw_sink_input_index, state->pending_volume)) {
+            return;
         }
         // PipeWire failed, sink-input may have changed - try to refresh
         g_print("Volume: PipeWire set failed, refreshing sink-input\n");
@@ -142,15 +241,11 @@ static gboolean delayed_volume_set(gpointer user_data) {
                 pw_set_volume(state->pw_sink_input_index, state->pending_volume);
             }
         }
-        state->pending_set_timer = 0;
-        return G_SOURCE_REMOVE;
+        return;
     }
 
     // Fall back to MPRIS
-    if (!state->mpris_proxy) {
-        state->pending_set_timer = 0;
-        return G_SOURCE_REMOVE;
-    }
+    if (!state->mpris_proxy) return;
 
     // Set via MPRIS D-Bus property
     g_dbus_proxy_call(
@@ -166,8 +261,13 @@ static gboolean delayed_volume_set(gpointer user_data) {
         NULL,
         NULL
     );
+}
+
+static gboolean delayed_volume_set(gpointer user_data) {
+    VolumeState *state = (VolumeState *)user_data;
 
     state->pending_set_timer = 0;
+    apply_pending_volume(state);
     return G_SOURCE_REMOVE;
 }
 
@@ -177,13 +277,23 @@ static void on_volume_changed(GtkRange *range, gpointer user_data) {
 
     state->pending_volume = value;
 
-    // Cancel any pending volume set
-    if (state->pending_set_timer > 0) {
-        g_source_remove(state->pending_set_timer);
-    }
+    // Throttle on the leading edge: apply at once when the backend has been
+    // idle, otherwise let the already-pending timer carry the latest value.
+    // Cancelling and rescheduling instead would starve the backend entirely
+    // whenever changes arrive faster than the interval, which is exactly what
+    // holding a step button or dragging the slider does.
+    gint64 since_apply = g_get_monotonic_time() - state->last_apply_us;
 
-    // Schedule throttled volume set (100ms delay)
-    state->pending_set_timer = g_timeout_add(100, delayed_volume_set, state);
+    if (since_apply >= VOLUME_APPLY_INTERVAL_US) {
+        if (state->pending_set_timer > 0) {
+            g_source_remove(state->pending_set_timer);
+            state->pending_set_timer = 0;
+        }
+        apply_pending_volume(state);
+    } else if (state->pending_set_timer == 0) {
+        guint remaining_ms = (guint)((VOLUME_APPLY_INTERVAL_US - since_apply) / 1000);
+        state->pending_set_timer = g_timeout_add(remaining_ms, delayed_volume_set, state);
+    }
 
     // Update UI immediately for responsive feel
     volume_update_icon(state, (gint)round(value * 100));
@@ -300,8 +410,8 @@ VolumeState* volume_init(GDBusProxy *mpris_proxy, const gchar *mpris_bus_name, g
 
     // Fine adjustment buttons. Dragging resolves to about a percent per pixel,
     // which is useless for players that only use the bottom of the range.
-    state->step_down = create_step_button("−", G_CALLBACK(on_step_down_clicked), state);
-    state->step_up = create_step_button("+", G_CALLBACK(on_step_up_clicked), state);
+    state->step_down = create_step_button("−", FALSE, state);
+    state->step_up = create_step_button("+", TRUE, state);
 
     // Percentage label
     gchar *percentage_text = format_volume_percentage(state->current_volume);

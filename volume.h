@@ -14,6 +14,18 @@
 #define VOLUME_STEP_DB 0.5      // Perceived size of one button press
 #define VOLUME_STEP_MIN 0.0005  // Floor, so 0.0 is not a trap
 
+// Press-and-hold on a step button: wait, then repeat with acceleration, so a
+// tap stays one step and a hold can cross the range.
+#define VOLUME_REPEAT_DELAY_MS 350
+#define VOLUME_REPEAT_START_MS 140
+#define VOLUME_REPEAT_MIN_MS 35
+#define VOLUME_REPEAT_DECAY_NUM 6   // Each repeat waits 6/7 of the last
+#define VOLUME_REPEAT_DECAY_DEN 7
+
+// Ceiling on how often the backend is driven. pw_set_volume spawns pactl
+// synchronously, so repeats and drags are coalesced rather than each applied.
+#define VOLUME_APPLY_INTERVAL_US (100 * 1000)
+
 typedef struct {
     GDBusProxy *mpris_proxy;
     GtkWidget *revealer;
@@ -28,6 +40,7 @@ typedef struct {
     gboolean is_showing;
     guint hide_timer;
     guint pending_set_timer;  // For throttled volume setting
+    gint64 last_apply_us;     // Monotonic time the backend was last driven
 
     // PipeWire per-application volume control
     gchar *mpris_bus_name;       // D-Bus name for PID extraction

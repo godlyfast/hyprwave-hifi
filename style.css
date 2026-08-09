@@ -501,8 +501,11 @@ button:focus {
     background: linear-gradient(135deg, var(--btn-default-hover), var(--btn-default-hover-secondary));
 }
 
-.volume-step:active {
-    background: linear-gradient(135deg, var(--btn-default), var(--btn-default-secondary));
+/* Applied while held. The press gesture claims the sequence to suppress a
+   duplicate click, which also suppresses GTK's own :active state. */
+.volume-step.held {
+    background: linear-gradient(135deg, var(--btn-default-hover), var(--btn-default-hover-secondary));
+    box-shadow: 0 0 3px var(--shadow-button);
 }
 
 /* Volume slider - similar to progress bar but with different colors */

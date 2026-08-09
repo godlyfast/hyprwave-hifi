@@ -29,8 +29,8 @@ project unless explicitly stated otherwise. Use this repository URL or the
 
 - Per-application volume using PipeWire/Pulse sink-inputs via `pactl`, with MPRIS fallback.
 - Half-percent volume steps, with fractional levels preserved end to end, plus
-  `-`/`+` buttons that step by a fixed 0.5 dB for players that only use the
-  bottom of the MPRIS range.
+  `-`/`+` buttons that step by a fixed 0.5 dB (with press-and-hold repeat) for
+  players that only use the bottom of the MPRIS range.
 - PipeWire-native visualizer with automatic gain control.
 - MPRIS playback controls for Spotify, Roon, VLC, browsers, and other compatible players.
 - Click/drag progress seeking when the active player supports seeking.
@@ -294,6 +294,11 @@ onto the MPRIS 0.0-1.0 double and end up using only the bottom of the range: a
 player sitting at 1% gets roughly 0.06% per press, where a flat 0.5% step would
 be a 3 dB jump. Dragging the slider resolves to about a percent per pixel, so
 the buttons are the only way to place a level precisely down there.
+
+Holding a button repeats, slowly at first and then accelerating, so the same
+control covers a nudge and a sweep across the range. The level is pushed to the
+backend at most ten times a second however fast the repeat runs, because
+setting a PipeWire level shells out to `pactl` on the UI thread.
 
 The label carries enough decimals to show that a press did something — two
 below 10%, one above — with trailing zeros trimmed, so a level that lands on a
