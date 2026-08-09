@@ -8,6 +8,9 @@ SRC = main.c layout.c paths.c notification.c art.c volume.c visualizer.c pipewir
 PREFIX ?= $(HOME)/.local
 BINDIR = $(PREFIX)/bin
 DATADIR = $(PREFIX)/share/hyprwave
+# Fonts default to the user's font dir. Override for a system install, so a
+# sudo'd `make install PREFIX=/usr` does not drop them in root's home.
+FONTDIR ?= $(HOME)/.local/share/fonts/hyprwave
 
 all: $(TARGET)
 
@@ -38,9 +41,8 @@ install: $(TARGET)
 	install -m644 icons/volume-mute.svg $(DATADIR)/icons/
 	@mkdir -p $(DATADIR)/themes
 	install -m644 themes/*.css $(DATADIR)/themes/
-	mkdir -p $(HOME)/.local/share/fonts/hyprwave
-	cp fonts/VT323-Regular.ttf $(HOME)/.local/share/fonts/hyprwave/
-	fc-cache -f $(HOME)/.local/share/fonts/hyprwave
+	install -Dm644 fonts/VT323-Regular.ttf $(FONTDIR)/VT323-Regular.ttf
+	fc-cache -f $(FONTDIR)
 	@echo "Installation complete!"
 	@echo "Files installed to: $(DATADIR)"
 	@echo "Binary installed to: $(BINDIR)/$(TARGET)"
