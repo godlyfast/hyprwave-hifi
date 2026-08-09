@@ -22,18 +22,73 @@ static void init_pipewire_state(VolumeState *state);
 /**
  * Format a 0.0-1.0 volume as a percentage label.
  *
- * The slider steps in halves of a percent, so whole-number formatting would
- * print the same text for two consecutive steps. Show a decimal only when the
- * value actually lands between whole percents.
+ * Steps get finer towards the bottom of the range, so the label needs more
+ * decimals there to show that a press did anything. Trailing zeros are
+ * trimmed, so a level that lands on a whole percent still reads as "50%".
  */
 static gchar* format_volume_percentage(gdouble volume) {
     gdouble percentage = volume * 100.0;
-    gdouble whole = round(percentage);
+    gint decimals = percentage < 10.0 ? 2 : 1;
 
-    if (fabs(percentage - whole) < 0.05) {
-        return g_strdup_printf("%d%%", (gint)whole);
+    // g_ascii_formatd rather than g_strdup_printf: the trimming below looks
+    // for '.', which a comma-decimal locale would never produce.
+    gchar buf[G_ASCII_DTOSTR_BUF_SIZE];
+    gchar format[8];
+    g_snprintf(format, sizeof(format), "%%.%df", decimals);
+    g_ascii_formatd(buf, sizeof(buf), format, percentage);
+
+    if (strchr(buf, '.')) {
+        gchar *end = buf + strlen(buf) - 1;
+        while (*end == '0') *end-- = '\0';
+        if (*end == '.') *end = '\0';
     }
-    return g_strdup_printf("%.1f%%", percentage);
+
+    return g_strdup_printf("%s%%", buf);
+}
+
+/**
+ * Signed step for one press of the +/- buttons.
+ *
+ * A constant ratio (VOLUME_STEP_DB) rather than a constant amount, so the
+ * change sounds the same size at 1% as it does at 80%. Capped at VOLUME_STEP
+ * so a press never moves more than the slider's own step, and floored at
+ * VOLUME_STEP_MIN so the step does not vanish as the level approaches zero.
+ */
+static gdouble volume_fine_step(gdouble volume, gboolean up) {
+    gdouble factor = pow(10.0, (up ? VOLUME_STEP_DB : -VOLUME_STEP_DB) / 20.0);
+    gdouble delta = fabs(volume * factor - volume);
+
+    delta = CLAMP(delta, VOLUME_STEP_MIN, VOLUME_STEP);
+    return up ? delta : -delta;
+}
+
+static void volume_step(VolumeState *state, gboolean up) {
+    gdouble value = gtk_range_get_value(GTK_RANGE(state->slider));
+    gdouble stepped = CLAMP(value + volume_fine_step(value, up), 0.0, 1.0);
+
+    // Setting the range drives on_volume_changed, which applies the level,
+    // relabels, and restarts the auto-hide timer.
+    gtk_range_set_value(GTK_RANGE(state->slider), stepped);
+}
+
+static void on_step_up_clicked(GtkButton *button, gpointer user_data) {
+    volume_step((VolumeState *)user_data, TRUE);
+}
+
+static void on_step_down_clicked(GtkButton *button, gpointer user_data) {
+    volume_step((VolumeState *)user_data, FALSE);
+}
+
+static GtkWidget* create_step_button(const gchar *label, GCallback callback, VolumeState *state) {
+    GtkWidget *button = gtk_button_new_with_label(label);
+
+    gtk_widget_add_css_class(button, "volume-step");
+    gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
+    gtk_widget_set_focus_on_click(button, FALSE);
+    g_signal_connect(button, "clicked", callback, state);
+
+    return button;
 }
 
 static gboolean auto_hide_volume(gpointer user_data) {
@@ -235,13 +290,18 @@ VolumeState* volume_init(GDBusProxy *mpris_proxy, const gchar *mpris_bus_name, g
     gtk_range_set_value(GTK_RANGE(slider), state->current_volume);
 
     if (is_vertical) {
-        gtk_widget_set_size_request(slider, 120, 24);
+        gtk_widget_set_size_request(slider, 96, 24);
     } else {
-        gtk_widget_set_size_request(slider, 24, 100);
+        gtk_widget_set_size_request(slider, 24, 84);
         gtk_range_set_inverted(GTK_RANGE(slider), TRUE);  // Top = high volume
     }
 
     g_signal_connect(slider, "value-changed", G_CALLBACK(on_volume_changed), state);
+
+    // Fine adjustment buttons. Dragging resolves to about a percent per pixel,
+    // which is useless for players that only use the bottom of the range.
+    state->step_down = create_step_button("−", G_CALLBACK(on_step_down_clicked), state);
+    state->step_up = create_step_button("+", G_CALLBACK(on_step_up_clicked), state);
 
     // Percentage label
     gchar *percentage_text = format_volume_percentage(state->current_volume);
@@ -250,9 +310,12 @@ VolumeState* volume_init(GDBusProxy *mpris_proxy, const gchar *mpris_bus_name, g
     state->percentage = percentage;
     gtk_widget_add_css_class(percentage, "volume-percentage");
 
-    // Pack widgets
+    // Pack widgets. The step buttons flank the slider on the side each one
+    // moves towards: the vertical slider is inverted, so up is above it.
     gtk_box_append(GTK_BOX(container), icon);
+    gtk_box_append(GTK_BOX(container), is_vertical ? state->step_down : state->step_up);
     gtk_box_append(GTK_BOX(container), slider);
+    gtk_box_append(GTK_BOX(container), is_vertical ? state->step_up : state->step_down);
     gtk_box_append(GTK_BOX(container), percentage);
 
     // Wrap in revealer for animation

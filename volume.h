@@ -7,12 +7,21 @@
 // Slider granularity as a fraction of full scale (0.005 = 0.5%)
 #define VOLUME_STEP 0.005
 
+// The +/- buttons step by a constant ratio rather than a constant amount, so
+// the change sounds the same size wherever the level sits. Players that map a
+// stepped control onto the MPRIS 0.0-1.0 double can end up using only the very
+// bottom of the range, where a flat 0.5% is a several-dB jump.
+#define VOLUME_STEP_DB 0.5      // Perceived size of one button press
+#define VOLUME_STEP_MIN 0.0005  // Floor, so 0.0 is not a trap
+
 typedef struct {
     GDBusProxy *mpris_proxy;
     GtkWidget *revealer;
     GtkWidget *container;
     GtkWidget *icon;
     GtkWidget *slider;
+    GtkWidget *step_down;
+    GtkWidget *step_up;
     GtkWidget *percentage;
     gdouble current_volume;
     gdouble pending_volume;  // For throttled updates

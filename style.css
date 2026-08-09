@@ -477,6 +477,34 @@ button:focus {
     min-width: 40px;
 }
 
+/* Fine adjustment buttons flanking the slider */
+.volume-step {
+    padding: 0;
+    margin: 0;
+    min-width: 18px;
+    min-height: 18px;
+
+    /* White for the same reason the control icons are white: it reads on the
+       saturated light-theme button as well as the dark-theme one. */
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+
+    background: linear-gradient(135deg, var(--btn-default), var(--btn-default-secondary));
+    border: none;
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--shadow-button);
+}
+
+.volume-step:hover {
+    background: linear-gradient(135deg, var(--btn-default-hover), var(--btn-default-hover-secondary));
+}
+
+.volume-step:active {
+    background: linear-gradient(135deg, var(--btn-default), var(--btn-default-secondary));
+}
+
 /* Volume slider - similar to progress bar but with different colors */
 .volume-slider {
     min-height: 24px;

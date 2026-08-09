@@ -28,7 +28,9 @@ project unless explicitly stated otherwise. Use this repository URL or the
 ## Features
 
 - Per-application volume using PipeWire/Pulse sink-inputs via `pactl`, with MPRIS fallback.
-- Half-percent volume steps, with fractional levels preserved end to end.
+- Half-percent volume steps, with fractional levels preserved end to end, plus
+  `-`/`+` buttons that step by a fixed 0.5 dB for players that only use the
+  bottom of the MPRIS range.
 - PipeWire-native visualizer with automatic gain control.
 - MPRIS playback controls for Spotify, Roon, VLC, browsers, and other compatible players.
 - Click/drag progress seeking when the active player supports seeking.
@@ -283,8 +285,19 @@ The slider moves in 0.5% steps for arrow keys and the scroll wheel, and 10%
 steps for Page Up/Down. Half-percent levels survive the whole chain: `pactl`
 is given a fractional percentage when setting, and the raw volume value is
 read back rather than the whole-number percentage `pactl` prints, so reopening
-the control does not snap the level. The label shows a decimal only when the
-level falls between whole percents, for example `50.5%`.
+the control does not snap the level.
+
+The `-` and `+` buttons either side of the slider step by a constant 0.5 dB
+rather than a constant percentage, capped so a press never moves more than the
+slider's own 0.5%. This matters for players that map a stepped volume control
+onto the MPRIS 0.0-1.0 double and end up using only the bottom of the range: a
+player sitting at 1% gets roughly 0.06% per press, where a flat 0.5% step would
+be a 3 dB jump. Dragging the slider resolves to about a percent per pixel, so
+the buttons are the only way to place a level precisely down there.
+
+The label carries enough decimals to show that a press did something — two
+below 10%, one above — with trailing zeros trimmed, so a level that lands on a
+whole percent still reads as `50%`.
 
 ## Themes
 
