@@ -78,3 +78,9 @@ sudo pacman -S gtk4 gtk4-layer-shell pipewire
   `PropertiesChanged`, so a player that omits a key in one signal drops it until
   the next complete dict arrives. Read it once in `update_metadata()` and keep it
   in `AppState`
+- Firefox/Chromium stay excluded even when they are the only MPRIS names; with no
+  valid player the window keeps its controls visible (vertical idle mode refuses
+  to engage while `mpris_proxy` is NULL) and the play button re-triggers player
+  discovery. Regression harness: `tests/run-selection-tests.sh` (4 scenarios,
+  fake MPRIS services on an isolated D-Bus session) — run it after touching
+  player selection
