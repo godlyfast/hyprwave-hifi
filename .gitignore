@@ -4,3 +4,4 @@ hyprwave
 .idea/
 build/
 .omc/
+__pycache__/

@@ -420,35 +420,18 @@ static void load_available_players(AppState *state) {
 
     const gchar *name;
     GPtrArray *player_arr = g_ptr_array_new();
-    GPtrArray *all_mpris = g_ptr_array_new_with_free_func(g_free);
 
     while (g_variant_iter_loop(iter, "&s", &name)) {
         if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.") &&
-            !is_excluded_player(name)) {
-            g_ptr_array_add(all_mpris, g_strdup(name));
+            !is_excluded_player(name) &&
+            is_allowed_chromium_player(name)) {
+            g_ptr_array_add(player_arr, g_strdup(name));
         }
     }
 
     g_variant_iter_free(iter);
     g_variant_unref(result);
     g_object_unref(dbus_proxy);
-
-    // Preferred: real players (browser MPRIS names filtered out)
-    for (guint i = 0; i < all_mpris->len; i++) {
-        const gchar *n = g_ptr_array_index(all_mpris, i);
-        if (is_allowed_chromium_player(n)) {
-            g_ptr_array_add(player_arr, g_strdup(n));
-        }
-    }
-
-    // Last resort: accept generic browsers rather than showing nothing
-    if (player_arr->len == 0) {
-        for (guint i = 0; i < all_mpris->len; i++) {
-            g_ptr_array_add(player_arr, g_strdup(g_ptr_array_index(all_mpris, i)));
-        }
-    }
-
-    g_ptr_array_free(all_mpris, TRUE);
 
     g_ptr_array_add(player_arr, NULL);
     state->players = (gchar **)g_ptr_array_free(player_arr, FALSE);
@@ -1044,6 +1027,12 @@ static gboolean enter_vertical_idle_mode(gpointer user_data) {
     // Don't enter if not visible, expanded, or in horizontal layout
     if (state->is_idle_mode || !state->is_visible || state->is_expanded ||
         !state->layout->is_vertical || !state->vertical_display) {
+        return G_SOURCE_REMOVE;
+    }
+
+    // Without a player the slim strip would show nothing and become
+    // invisible against the transparent window; keep the buttons instead.
+    if (!state->mpris_proxy) {
         return G_SOURCE_REMOVE;
     }
     
