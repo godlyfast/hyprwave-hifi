@@ -599,6 +599,10 @@ static void switch_to_player(AppState *state, const gchar *bus_name) {
             gtk_widget_set_visible(state->visualizer_box, has_target);
         }
     }
+
+    // Switching players can reflow the expanded pane (visualizer box, track
+    // text, art), moving click targets outside the last committed region.
+    queue_input_region_update(state);
 }
 
 static void cycle_player(AppState *state, gboolean forward) {
