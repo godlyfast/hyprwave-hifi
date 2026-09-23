@@ -188,6 +188,11 @@ static void update_input_region_now(AppState *state) {
 
     gdk_surface_set_input_region(surface, region);
     cairo_region_destroy(region);
+
+    // Input regions are double-buffered: set_input_region only stages the
+    // region, a later surface commit publishes it. Force a frame so the
+    // staged region is committed promptly even when nothing else would paint.
+    gtk_widget_queue_draw(state->window);
 }
 
 static void on_input_region_after_paint(GdkFrameClock *clock, gpointer user_data) {
@@ -197,6 +202,15 @@ static void on_input_region_after_paint(GdkFrameClock *clock, gpointer user_data
 
     clear_pending_input_region_update(state);
     update_input_region_now(state);
+
+    // A revealer transition still in flight will change geometry again after
+    // this pass; re-arm so the final geometry is captured (notify::child-revealed
+    // is not emitted for reversed transitions, so it cannot be relied upon).
+    if (state->revealer &&
+        gtk_revealer_get_reveal_child(GTK_REVEALER(state->revealer)) !=
+        gtk_revealer_get_child_revealed(GTK_REVEALER(state->revealer))) {
+        queue_input_region_update(state);
+    }
 }
 
 static void queue_input_region_update(AppState *state) {

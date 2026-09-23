@@ -84,3 +84,11 @@ sudo pacman -S gtk4 gtk4-layer-shell pipewire
   discovery. Regression harness: `tests/run-selection-tests.sh` (4 scenarios,
   fake MPRIS services on an isolated D-Bus session) — run it after touching
   player selection
+- The layer surface is clickable only inside its input region. `gdk_surface_set_input_region()`
+  only stages the region (double-buffered until the next surface commit) and a
+  `notify::child-revealed` callback is not emitted for reversed transitions, so the
+  region must be re-applied while a revealer transition is in flight and followed by
+  `gtk_widget_queue_draw()` — otherwise the committed region keeps mid-animation
+  geometry and parts of the UI pass clicks through to windows below (looks like a
+  dead button; rapid click-testing during it can also strand a compositor pointer
+  grab, freezing clicks desktop-wide until the surface unmaps)
